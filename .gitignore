@@ -1,0 +1,19 @@
+# build
+daemon/target/
+daemon/Cargo.lock.bak
+target/
+*.o
+*.rlib
+*.rmeta
+
+# runtime artefacts
+target_code/
+obsidian_vault/
+graph.db
+graph.db-*
+
+# editor / os
+.DS_Store
+.vscode/
+.idea/
+*.swp

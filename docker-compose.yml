@@ -1,0 +1,51 @@
+version: "3.9"
+
+# codeingraph2 — surgical context daemon + MCP server
+#
+# Volumes:
+#   ./target_code       -> /target_code       (code being indexed; mount your repo here)
+#   ./obsidian_vault    -> /obsidian_vault    (auto-generated Obsidian vault)
+#   codeingraph2_db     -> /var/lib/codeingraph2 (sqlite graph.db, persistent)
+#
+# Override TARGET_CODE / OBSIDIAN_VAULT env vars to mount other paths.
+
+services:
+  codeingraph2:
+    container_name: codeingraph2_container
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: codeingraph2:latest
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    init: true
+    volumes:
+      - ${TARGET_CODE:-./target_code}:/target_code
+      - ${OBSIDIAN_VAULT:-./obsidian_vault}:/obsidian_vault
+      - codeingraph2_db:/var/lib/codeingraph2
+    ports:
+      # Host port is user-chosen (prompted by install_global.sh).
+      - "${WEB_PORT:-7890}:7890"
+    environment:
+      RUST_LOG: ${RUST_LOG:-info}
+      CODEINGRAPH2_DB: /var/lib/codeingraph2/graph.db
+      CODEINGRAPH2_TARGET: /target_code
+      CODEINGRAPH2_VAULT: /obsidian_vault
+      CODEINGRAPH2_TEMPLATES: /opt/codeingraph2/templates
+      # Web UI (populated by install_global.sh → .env)
+      WEB_ENABLED: ${WEB_ENABLED:-1}
+      WEB_BIND:    0.0.0.0:7890
+      WEB_USER:    ${WEB_USER:-}
+      WEB_AUTH:    ${WEB_AUTH:-}
+    command: ["/usr/local/bin/codeingraph2", "daemon"]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/codeingraph2", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  codeingraph2_db:
+    name: codeingraph2_db

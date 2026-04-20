@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>codeingraph2 — war map</title>
+<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism-core.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1f232c; --border: #262b36;
+    --fg: #e5e7eb; --muted: #9ba3b4; --accent: #4d94ff;
+    --color-file: #999999; --color-class: #ff4d4d;
+    --color-fn:   #4d94ff; --color-var:   #ffdb4d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header {
+    height: 48px; padding: 0 16px; display: flex; align-items: center; gap: 16px;
+    background: var(--panel); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: .3px; }
+  header .stats { color: var(--muted); font-size: 12px; }
+  header .grow  { flex: 1; }
+  header input[type=search] {
+    width: 320px; padding: 6px 10px; background: var(--panel2);
+    border: 1px solid var(--border); color: var(--fg); border-radius: 6px; font-size: 13px;
+  }
+  header select {
+    padding: 6px 8px; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 6px; font-size: 12px;
+  }
+  header button {
+    padding: 6px 12px; background: var(--accent); color: #fff;
+    border: none; border-radius: 6px; font-size: 12px; cursor: pointer;
+  }
+  main { display: flex; height: calc(100% - 48px); }
+  #cy { flex: 1; background: var(--bg); }
+  aside {
+    width: 440px; border-left: 1px solid var(--border); background: var(--panel);
+    overflow: auto; padding: 16px; font-size: 13px; }
+  aside h2 { font-size: 13px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .08em; margin: 0 0 8px; font-weight: 600; }
+  aside h3 { font-size: 15px; margin: 0 0 4px; word-wrap: break-word; }
+  aside .meta { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+  aside .kv  { display: grid; grid-template-columns: 88px 1fr; gap: 4px 12px;
+    font-size: 12px; margin-bottom: 12px; }
+  aside .kv dt { color: var(--muted); }
+  aside .kv dd { margin: 0; word-break: break-all; }
+  aside .sig {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; overflow-x: auto; white-space: pre;
+  }
+  aside pre { background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px; font-size: 12px; overflow: auto; margin: 0; }
+  aside .chip {
+    display: inline-block; padding: 1px 8px; border-radius: 999px;
+    background: var(--panel2); border: 1px solid var(--border);
+    color: var(--muted); font-size: 11px; margin-right: 6px;
+  }
+  aside .list { list-style: none; padding: 0; margin: 0 0 12px; }
+  aside .list li { padding: 4px 0; border-bottom: 1px dashed var(--border); cursor: pointer; }
+  aside .list li:hover { color: var(--accent); }
+  aside .list .rel-kind { color: var(--muted); font-size: 11px; margin-right: 6px; }
+  .placeholder { color: var(--muted); text-align: center; padding: 40px 0; }
+  .legend {
+    position: absolute; bottom: 12px; left: 12px;
+    background: rgba(23,26,33,.9); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; font-size: 11px; color: var(--muted);
+  }
+  .legend .sw { display: inline-block; width: 10px; height: 10px;
+    border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<header>
+  <h1>codeingraph2</h1>
+  <span class="stats" id="stats">—</span>
+  <span class="grow"></span>
+  <input type="search" id="q" placeholder="Buscar nome / qualificador...">
+  <select id="kind">
+    <option value="">Todos os tipos</option>
+    <option value="file">Arquivos</option>
+    <option value="class">Classes</option>
+    <option value="function">Funções</option>
+    <option value="method">Métodos</option>
+    <option value="variable">Variáveis</option>
+    <option value="constant">Constantes</option>
+    <option value="trait">Traits</option>
+    <option value="enum">Enums</option>
+    <option value="module">Módulos</option>
+  </select>
+  <select id="limit">
+    <option value="200">200 nós</option>
+    <option value="500" selected>500 nós</option>
+    <option value="1000">1000 nós</option>
+    <option value="2000">2000 nós</option>
+  </select>
+  <button id="reload">Recarregar</button>
+</header>
+<main>
+  <div id="cy"></div>
+  <aside id="panel">
+    <div class="placeholder">Clique em um nó ou aresta para ver detalhes.</div>
+  </aside>
+</main>
+<div class="legend">
+  <div><span class="sw" style="background:#999"></span> Files</div>
+  <div><span class="sw" style="background:#ff4d4d"></span> Classes / Traits / Enums</div>
+  <div><span class="sw" style="background:#4d94ff"></span> Functions / Methods</div>
+  <div><span class="sw" style="background:#ffdb4d"></span> Variables / Constants</div>
+</div>
+
+<script>
+const COLOR = {
+  file: '#999999', module: '#999999',
+  class: '#ff4d4d', trait: '#ff4d4d', enum: '#ff4d4d',
+  function: '#4d94ff', method: '#4d94ff',
+  variable: '#ffdb4d', constant: '#ffdb4d',
+};
+const RELATION_COLOR = {
+  calls: '#4d94ff', imports: '#9ba3b4', inherits: '#ff4d4d',
+  contains: '#555', references: '#ffdb4d', implements: '#ff7aa2',
+  assigns: '#b38bff', reads: '#6ee7b7',
+};
+const LANG_BY_EXT = {
+  rs:'rust', py:'python', js:'javascript', mjs:'javascript', cjs:'javascript',
+  ts:'typescript', tsx:'tsx',
+};
+
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${url}`);
+  return r.json();
+}
+
+function colorFor(kind) { return COLOR[kind] || '#888'; }
+function sizeFor(fan) { return Math.min(70, 18 + Math.sqrt(fan || 0) * 5); }
+
+let cy = null;
+async function loadGraph() {
+  const q     = document.getElementById('q').value.trim();
+  const kind  = document.getElementById('kind').value;
+  const limit = document.getElementById('limit').value;
+  const params = new URLSearchParams();
+  if (q)    params.set('q', q);
+  if (kind) params.set('kind', kind);
+  if (limit)params.set('limit', limit);
+
+  const stats = await fetchJSON('/api/stats');
+  document.getElementById('stats').textContent =
+    `${stats.files} arquivos · ${stats.symbols} símbolos · ${stats.relations} relações`;
+
+  const data = await fetchJSON('/api/graph?' + params);
+  const nodes = data.nodes.map(n => ({ data: {
+    id: String(n.id), label: n.name, kind: n.kind,
+    qname: n.qname, file: n.file, start: n.start, end: n.end,
+    fan: (n.fan_in||0) + (n.fan_out||0),
+  }}));
+  const edges = data.edges.map(e => ({ data: {
+    id: 'e'+e.id, source: String(e.source), target: String(e.target),
+    kind: e.kind, line: e.line,
+  }}));
+
+  if (cy) cy.destroy();
+  cy = cytoscape({
+    container: document.getElementById('cy'),
+    elements: [...nodes, ...edges],
+    style: [
+      { selector: 'node', style: {
+          'background-color': ele => colorFor(ele.data('kind')),
+          'label': 'data(label)', 'color': '#e5e7eb', 'font-size': 10,
+          'text-valign': 'bottom', 'text-margin-y': 4,
+          'width':  ele => sizeFor(ele.data('fan')),
+          'height': ele => sizeFor(ele.data('fan')),
+          'border-width': 1, 'border-color': '#0f1115',
+      }},
+      { selector: 'node:selected', style: {
+          'border-width': 3, 'border-color': '#fff',
+      }},
+      { selector: 'edge', style: {
+          'width': 1,
+          'line-color': ele => RELATION_COLOR[ele.data('kind')] || '#555',
+          'target-arrow-color': ele => RELATION_COLOR[ele.data('kind')] || '#555',
+          'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'opacity': 0.7,
+      }},
+      { selector: 'edge:selected', style: {
+          'width': 3, 'opacity': 1,
+      }},
+      { selector: '.dim', style: { 'opacity': 0.08 } },
+    ],
+    layout: {
+      name: 'cose', animate: false, randomize: true,
+      nodeRepulsion: () => 6000, idealEdgeLength: () => 90,
+      edgeElasticity: () => 100, gravity: 1,
+    },
+    wheelSensitivity: 0.3,
+  });
+
+  cy.on('tap', 'node', async (evt) => {
+    const id = evt.target.id();
+    await showNode(id);
+    highlightNeighborhood(evt.target);
+  });
+  cy.on('tap', 'edge', async (evt) => {
+    const id = evt.target.id().replace(/^e/, '');
+    await showEdge(id);
+  });
+  cy.on('tap', (evt) => {
+    if (evt.target === cy) { cy.elements().removeClass('dim'); }
+  });
+}
+
+function highlightNeighborhood(node) {
+  const keep = node.closedNeighborhood();
+  cy.elements().addClass('dim');
+  keep.removeClass('dim');
+}
+
+function langOf(path) {
+  const ext = (path || '').split('.').pop();
+  return LANG_BY_EXT[ext] || 'clike';
+}
+
+function escapeHTML(s) {
+  return (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+async function showNode(id) {
+  const n = await fetchJSON(`/api/node/${id}`);
+  const lang = langOf(n.file);
+  const out = [];
+  out.push('<h2>Nó</h2>');
+  out.push(`<h3>${escapeHTML(n.qname)}</h3>`);
+  out.push(`<div class="meta">
+    <span class="chip">${escapeHTML(n.kind)}</span>
+    <span class="chip">${escapeHTML(n.language || '?')}</span>
+    ${n.visibility ? `<span class="chip">${escapeHTML(n.visibility)}</span>` : ''}
+  </div>`);
+  out.push(`<dl class="kv">
+    <dt>Arquivo</dt><dd>${escapeHTML(n.file)}</dd>
+    <dt>Linhas</dt><dd>${n.start_line}–${n.end_line}</dd>
+    <dt>fan-in</dt><dd>${n.incoming.length}</dd>
+    <dt>fan-out</dt><dd>${n.outgoing.length}</dd>
+  </dl>`);
+  if (n.signature)
+    out.push(`<div class="sig">${escapeHTML(n.signature)}</div>`);
+  if (n.docstring)
+    out.push(`<p class="meta">${escapeHTML(n.docstring)}</p>`);
+  out.push(`<h2>Código</h2><pre><code class="language-${lang}">${escapeHTML(n.source || '(arquivo não acessível)')}</code></pre>`);
+
+  if (n.outgoing.length) {
+    out.push('<h2>Sai de</h2><ul class="list">');
+    for (const e of n.outgoing) {
+      const label = e.target_qname || e.target_name || '(externo)';
+      out.push(`<li data-kind="node" data-id="${e.target_id||''}">
+        <span class="rel-kind">${escapeHTML(e.kind)} L${e.line}</span>${escapeHTML(label)}
+      </li>`);
+    }
+    out.push('</ul>');
+  }
+  if (n.incoming.length) {
+    out.push('<h2>Entra de</h2><ul class="list">');
+    for (const e of n.incoming) {
+      out.push(`<li data-kind="node" data-id="${e.source_id}">
+        <span class="rel-kind">${escapeHTML(e.kind)} L${e.line}</span>${escapeHTML(e.source_qname)}
+      </li>`);
+    }
+    out.push('</ul>');
+  }
+  const panel = document.getElementById('panel');
+  panel.innerHTML = out.join('');
+  panel.querySelectorAll('.list li[data-id]').forEach(li => {
+    li.addEventListener('click', () => {
+      const id = li.dataset.id; if (!id) return;
+      const n = cy.getElementById(id); if (n.length) { n.select(); cy.center(n); highlightNeighborhood(n); showNode(id); }
+      else { showNode(id); }
+    });
+  });
+  Prism.highlightAllUnder(panel);
+}
+
+async function showEdge(id) {
+  const e = await fetchJSON(`/api/edge/${id}`);
+  const lang = langOf(e.source.file);
+  const panel = document.getElementById('panel');
+  panel.innerHTML = `
+    <h2>Relação</h2>
+    <h3>${escapeHTML(e.kind)} · L${e.line}</h3>
+    <dl class="kv">
+      <dt>De</dt><dd>${escapeHTML(e.source.qname)}</dd>
+      <dt>Para</dt><dd>${escapeHTML(e.target.qname || e.target.name || '(externo)')}</dd>
+      <dt>Arquivo</dt><dd>${escapeHTML(e.source.file)}:${e.line}</dd>
+    </dl>
+    <h2>Contexto</h2>
+    <pre><code class="language-${lang}">${escapeHTML(e.context.source || '')}</code></pre>
+  `;
+  Prism.highlightAllUnder(panel);
+}
+
+document.getElementById('reload').addEventListener('click', loadGraph);
+document.getElementById('q').addEventListener('keydown', ev => { if (ev.key === 'Enter') loadGraph(); });
+document.getElementById('kind').addEventListener('change', loadGraph);
+document.getElementById('limit').addEventListener('change', loadGraph);
+
+loadGraph().catch(err => {
+  document.getElementById('panel').innerHTML =
+    `<h2>Erro</h2><p class="meta">${escapeHTML(err.message)}</p>`;
+});
+</script>
+</body>
+</html>

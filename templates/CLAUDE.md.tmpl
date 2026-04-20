@@ -1,0 +1,85 @@
+# Projeto: {{PROJECT_NAME}}
+
+> **Auto-gerado por [codeingraph2](https://github.com/codeingraph/codeingraph2) em {{GENERATED_AT}}.**
+> Não edite a seção `<!-- codeingraph2:begin -->...<!-- codeingraph2:end -->` manualmente — ela é sobrescrita a cada reindexação. Adicione suas instruções fora desse bloco.
+
+<!-- codeingraph2:begin -->
+
+## Contexto do Grafo
+
+Este repositório está indexado em tempo real pelo daemon **codeingraph2**. Sempre que você estiver trabalhando aqui, o servidor MCP `codeingraph2` está disponível com uma visão completa da "Matriz" (Símbolos × Relações × Linhas).
+
+- **Target**: `{{TARGET_PATH}}`
+- **Grafo**: `{{DB_PATH}}` ({{SYMBOL_COUNT}} símbolos, {{RELATION_COUNT}} relações, {{FILE_COUNT}} arquivos)
+- **Vault visual (Obsidian)**: `{{VAULT_PATH}}`
+- **Linguagens detectadas**: {{LANGUAGES}}
+
+## Como você DEVE operar neste repositório
+
+### 1. Antes de qualquer refatoração não-trivial
+
+Consulte **sempre** a ferramenta MCP `get_surgical_context` antes de:
+- Renomear ou remover símbolos exportados (funções, classes, métodos públicos).
+- Mudar assinaturas de funções chamadas em mais de um arquivo.
+- Alterar hierarquias de classe, traits ou interfaces.
+- Mover arquivos ou módulos.
+
+O `get_surgical_context` retorna **apenas os trechos exatos** (file:line_start-line_end) dos call-sites, definições e dependências impactadas — use-os em vez de ler arquivos inteiros.
+
+```jsonc
+// Exemplo de invocação
+{
+  "tool": "get_surgical_context",
+  "arguments": {
+    "symbol": "UserService.authenticate",   // ou "path/to/file.rs:42"
+    "depth": 2,                             // 1 = call-sites diretos, 2 = + transitivos
+    "max_snippets": 20
+  }
+}
+```
+
+### 2. Convenções de código (detectadas pelo grafo)
+
+{{CONVENTIONS_BLOCK}}
+
+Siga essas convenções ao introduzir novo código. Se precisar divergir, justifique na descrição do commit.
+
+### 3. Hierarquia de dependências
+
+Os módulos com maior **fan-in** (mais dependentes) são críticos — mudanças neles têm grande raio de impacto:
+
+{{TOP_FANIN_BLOCK}}
+
+Os módulos com maior **fan-out** (mais acoplados) são candidatos a simplificação:
+
+{{TOP_FANOUT_BLOCK}}
+
+### 4. Visual War-Map
+
+Duas opções complementares com a mesma paleta:
+
+- **Obsidian**: abra o vault em `{{VAULT_PATH}}` e ative o Graph View.
+- **UI web embutida**: `http://localhost:<WEB_PORT>/` (porta/usuário/senha definidos no `install_global.sh`). Clique num nó para ver metadados + código; clique numa aresta para ver a relação + contexto.
+
+Paleta:
+- 🔘 **Cinza (#999999)**  — Files / Modules
+- 🔴 **Vermelho (#ff4d4d)** — Classes / Traits / Enums
+- 🔵 **Azul (#4d94ff)**    — Functions / Methods
+- 🟡 **Amarelo (#ffdb4d)** — Variables / Constants
+
+### 5. Ferramentas MCP disponíveis
+
+| Ferramenta               | O que faz |
+|--------------------------|-----------|
+| `get_surgical_context`   | Retorna trechos exatos de código impactados por um símbolo |
+| `query_graph`            | Busca símbolos por nome / tipo / arquivo |
+| `get_symbol`             | Detalhes completos de um símbolo (signature, docstring, callers) |
+| `get_callers`            | Quem chama o símbolo X (transitivo até profundidade N) |
+| `get_callees`            | O que o símbolo X chama |
+| `graph_stats`            | Estatísticas globais do grafo |
+
+<!-- codeingraph2:end -->
+
+## Instruções específicas do projeto
+
+<!-- Adicione aqui regras do seu time, comandos úteis, links, etc. Este bloco é preservado entre reindexações. -->
