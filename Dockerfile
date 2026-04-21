@@ -22,7 +22,7 @@ RUN mkdir -p src src/bin \
     && echo 'fn main() {}'     > src/bin/mcp_server.rs \
     && echo '// cache stub'    > src/lib.rs \
     && cargo build --release --bins \
-    && rm -rf src target/release/deps/codeingraph2* target/release/deps/mcp_server*
+    && rm -rf src target/release/deps/codeingraph2* target/release/deps/mcp_server* target/release/deps/libcodeingraph2*
 
 # Actual source.
 COPY daemon/src        ./src
