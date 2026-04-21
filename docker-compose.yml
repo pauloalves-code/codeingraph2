@@ -38,7 +38,7 @@ services:
       WEB_BIND:    0.0.0.0:7890
       WEB_USER:    ${WEB_USER:-}
       WEB_AUTH:    ${WEB_AUTH:-}
-    command: ["/usr/local/bin/codeingraph2", "daemon"]
+    command: ["daemon"]
     healthcheck:
       test: ["CMD", "/usr/local/bin/codeingraph2", "health"]
       interval: 30s
