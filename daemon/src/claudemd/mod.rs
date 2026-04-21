@@ -139,8 +139,9 @@ fn detect_conventions(c: &rusqlite::Connection) -> Result<String> {
     for k in kinds {
         let names: Vec<String> = {
             let mut stmt = c.prepare("SELECT name FROM symbols WHERE kind = ?1 LIMIT 200")?;
-            stmt.query_map(params![k], |r| r.get::<_,String>(0))?
-                .filter_map(Result::ok).collect()
+            let result: Vec<String> = stmt.query_map(params![k], |r| r.get::<_,String>(0))?
+                .filter_map(Result::ok).collect();
+            result
         };
         if names.is_empty() { continue; }
         let style = dominant_style(&names);
