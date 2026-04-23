@@ -8,7 +8,7 @@ Docker-isolated daemon that indexes a codebase into a SQLite graph and exposes i
 
 ![codeingraph2 web viewer](docs/ui-screenshot.png)
 
-> Interactive force-directed graph with type filters, name search, and a side panel showing source code when clicking any node or edge.
+> Interactive force-directed graph with auto zoom-to-fit, multi-select kind highlight, live search dropdown, and a side panel showing source code when clicking any node or edge.
 
 ## What it produces
 
