@@ -26,6 +26,9 @@ pub struct Config {
 
     /// Human-friendly project label (shown in the web UI header).
     pub project_name: String,
+
+    /// Whether to generate the Obsidian vault (disabled via CODEINGRAPH2_VAULT_ENABLED=0).
+    pub vault_enabled: bool,
 }
 
 impl Config {
@@ -50,6 +53,10 @@ impl Config {
             project_name: std::env::var("CODEINGRAPH2_PROJECT_NAME")
                 .ok().filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "project".into()),
+
+            vault_enabled: std::env::var("CODEINGRAPH2_VAULT_ENABLED")
+                .map(|v| v != "0")
+                .unwrap_or(true),
         })
     }
 }

@@ -42,6 +42,7 @@ Web UI:
   --user   NAME        Usuário da UI                  (default: pergunta)
   --pass   SECRET      Senha da UI                    (default: pergunta, oculta)
   --no-web             Desativa a UI web
+  --no-vault           Desativa a geração do vault Obsidian
 
 Controle:
   --no-build           Pula docker compose build
@@ -67,6 +68,7 @@ WEB_PORT="${WEB_PORT:-}"
 WEB_USER_IN="${WEB_USER:-}"
 WEB_PASS_IN=""
 WEB_ENABLED_IN="1"
+VAULT_ENABLED_IN="1"
 DO_BUILD=1
 DO_START=1
 DO_UNINSTALL=0
@@ -81,6 +83,7 @@ while [[ $# -gt 0 ]]; do
         --user)        WEB_USER_IN="$2"; shift 2 ;;
         --pass)        WEB_PASS_IN="$2"; shift 2 ;;
         --no-web)      WEB_ENABLED_IN="0"; shift ;;
+        --no-vault)    VAULT_ENABLED_IN="0"; shift ;;
         --no-build)    DO_BUILD=0; shift ;;
         --no-start)    DO_START=0; shift ;;
         --uninstall)   DO_UNINSTALL=1; shift ;;
@@ -257,6 +260,7 @@ TARGET_CODE=$TARGET_CODE
 OBSIDIAN_VAULT=$OBSIDIAN_VAULT
 PROJECT_NAME=$PROJECT_NAME
 WEB_ENABLED=$WEB_ENABLED_IN
+VAULT_ENABLED=$VAULT_ENABLED_IN
 WEB_PORT=$WEB_PORT
 WEB_USER=$WEB_USER_IN
 WEB_AUTH=$WEB_AUTH_VAL

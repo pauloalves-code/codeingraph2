@@ -52,7 +52,7 @@ pub fn run_blocking(cfg: Config, pool: Pool) -> Result<()> {
                     }
                 }
                 let _ = impact::recompute(&pool);
-                let _ = obsidian::generate(&pool, &cfg);
+                if cfg.vault_enabled { let _ = obsidian::generate(&pool, &cfg); }
                 let _ = claudemd::render(&pool, &cfg);
             }
         }

@@ -53,13 +53,19 @@ async fn main() -> Result<()> {
             let target = path.unwrap_or_else(|| cfg.target.clone());
             indexer::index_tree(&pool, &target, &cfg)?;
             impact::recompute(&pool)?;
-            obsidian::generate(&pool, &cfg)?;
+            if cfg.vault_enabled { obsidian::generate(&pool, &cfg)?; }
             claudemd::render(&pool, &cfg)?;
             Ok(())
         }
         Cmd::Web      => web::serve(cfg, pool).await,
         Cmd::Health   => { db::health(&pool)?; println!("ok"); Ok(()) }
-        Cmd::Vault    => obsidian::generate(&pool, &cfg),
+        Cmd::Vault    => {
+            if !cfg.vault_enabled {
+                tracing::warn!("vault is disabled (CODEINGRAPH2_VAULT_ENABLED=0); skipping");
+                return Ok(());
+            }
+            obsidian::generate(&pool, &cfg)
+        }
         Cmd::Claudemd => claudemd::render(&pool, &cfg),
         Cmd::Stats    => {
             let s = db::stats(&pool)?;
@@ -75,7 +81,7 @@ async fn run_daemon(cfg: Config, pool: db::Pool) -> Result<()> {
     tracing::info!("initial full index pass");
     indexer::index_tree(&pool, &cfg.target, &cfg)?;
     impact::recompute(&pool)?;
-    obsidian::generate(&pool, &cfg)?;
+    if cfg.vault_enabled { obsidian::generate(&pool, &cfg)?; }
     claudemd::render(&pool, &cfg)?;
 
     let web_cfg   = cfg.clone();
