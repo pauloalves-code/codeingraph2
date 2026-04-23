@@ -23,6 +23,9 @@ pub struct Config {
     pub web_user:    Option<String>,
     /// Format: `$sha256$<salt_hex>$<hash_hex>` (written by install_global.sh)
     pub web_auth:    Option<String>,
+
+    /// Human-friendly project label (shown in the web UI header).
+    pub project_name: String,
 }
 
 impl Config {
@@ -43,6 +46,10 @@ impl Config {
             web_bind:    std::env::var("WEB_BIND").unwrap_or_else(|_| "0.0.0.0:7890".into()),
             web_user:    std::env::var("WEB_USER").ok().filter(|s| !s.is_empty()),
             web_auth:    std::env::var("WEB_AUTH").ok().filter(|s| !s.is_empty()),
+
+            project_name: std::env::var("CODEINGRAPH2_PROJECT_NAME")
+                .ok().filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "project".into()),
         })
     }
 }

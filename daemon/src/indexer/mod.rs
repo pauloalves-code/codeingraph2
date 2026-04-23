@@ -42,6 +42,7 @@ pub fn index_tree(pool: &Pool, root: &Path, _cfg: &Config) -> Result<()> {
     let mut n_files = 0usize;
     let mut n_syms  = 0usize;
     let mut n_rels  = 0usize;
+    let mut indexed_paths: std::collections::HashSet<String> = Default::default();
 
     for entry in WalkDir::new(root).follow_links(false) {
         let entry = match entry { Ok(e) => e, Err(e) => { tracing::warn!(?e, "walk error"); continue; } };
@@ -50,13 +51,116 @@ pub fn index_tree(pool: &Pool, root: &Path, _cfg: &Config) -> Result<()> {
         if is_ignored(path) { continue; }
         let Some(lang) = detect_language(path) else { continue; };
 
+        let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy().to_string();
+        indexed_paths.insert(rel);
+
         match index_file(pool, root, path, lang) {
             Ok((s, r)) => { n_files += 1; n_syms += s; n_rels += r; }
             Err(e) => tracing::warn!(file = %path.display(), ?e, "index failure"),
         }
     }
     tracing::info!(n_files, n_syms, n_rels, "index done");
+
+    // Remove files that no longer exist in the target tree (e.g. after target change).
+    match purge_stale_files(pool, &indexed_paths) {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(removed = n, "purged stale files from previous target"),
+        Err(e) => tracing::warn!(?e, "purge stale files failed"),
+    }
+
+    // Second pass: resolve cross-file references now that all symbols exist.
+    if let Err(e) = resolve_unresolved_relations(pool) {
+        tracing::warn!(?e, "resolution pass failed");
+    }
     Ok(())
+}
+
+fn purge_stale_files(
+    pool: &Pool,
+    indexed: &std::collections::HashSet<String>,
+) -> Result<usize> {
+    pool.with_conn_mut(|conn| {
+        let existing: Vec<(i64, String)> = {
+            let mut stmt = conn.prepare("SELECT id, path FROM files")?;
+            let rows: Vec<(i64, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .filter_map(Result::ok)
+                .collect();
+            rows
+        };
+        let stale: Vec<i64> = existing.iter()
+            .filter(|(_, p)| !indexed.contains(p))
+            .map(|(id, _)| *id)
+            .collect();
+        if stale.is_empty() { return Ok(0); }
+        let tx = conn.transaction()?;
+        for id in &stale {
+            tx.execute("DELETE FROM files WHERE id = ?1", params![id])?;
+        }
+        tx.commit()?;
+        Ok(stale.len())
+    })
+}
+
+/// Attempt to resolve `target_name` → `target_symbol_id` for relations that
+/// were stored with `target_symbol_id IS NULL` (cross-file references inserted
+/// before the target file was indexed).  Safe to call multiple times.
+pub fn resolve_unresolved_relations(pool: &Pool) -> Result<usize> {
+    pool.with_conn_mut(|conn| {
+        // Collect into memory first so we can drop the statement before opening a tx.
+        let unresolved: Vec<(i64, String)> = {
+            let mut stmt = conn.prepare(
+                "SELECT id, target_name FROM relations
+                 WHERE target_symbol_id IS NULL AND target_name IS NOT NULL",
+            )?;
+            let rows: Vec<(i64, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .filter_map(Result::ok)
+                .collect();
+            rows
+        };
+        if unresolved.is_empty() {
+            return Ok(0);
+        }
+        let tx = conn.transaction()?;
+        let mut resolved = 0usize;
+        for (rel_id, target_name) in &unresolved {
+            if let Some(tid) = resolve_name(&tx, target_name) {
+                tx.execute(
+                    "UPDATE relations SET target_symbol_id = ?1 WHERE id = ?2",
+                    params![tid, rel_id],
+                )?;
+                resolved += 1;
+            }
+        }
+        tx.commit()?;
+        tracing::info!(resolved, total = unresolved.len(), "relation resolution pass done");
+        Ok(resolved)
+    })
+}
+
+/// Multi-strategy symbol lookup: qualified path → plain name → last path segment.
+fn resolve_name(conn: &rusqlite::Connection, name: &str) -> Option<i64> {
+    // 1. Exact qualified_name (e.g. "MyModule::MyClass::method")
+    if let Ok(id) = conn.query_row(
+        "SELECT id FROM symbols WHERE qualified_name = ?1 LIMIT 1",
+        params![name], |r| r.get::<_, i64>(0),
+    ) { return Some(id); }
+
+    // 2. Exact plain name
+    if let Ok(id) = conn.query_row(
+        "SELECT id FROM symbols WHERE name = ?1 LIMIT 1",
+        params![name], |r| r.get::<_, i64>(0),
+    ) { return Some(id); }
+
+    // 3. Last segment of dotted / colon-qualified path ("a::b::c" → "c", "obj.method" → "method")
+    let last = name.rsplit(|c: char| c == ':' || c == '.').next().unwrap_or(name);
+    if last != name && !last.is_empty() {
+        if let Ok(id) = conn.query_row(
+            "SELECT id FROM symbols WHERE name = ?1 LIMIT 1",
+            params![last], |r| r.get::<_, i64>(0),
+        ) { return Some(id); }
+    }
+
+    None
 }
 
 /// Reindex a single file. Called both by the full walker and by the watcher.

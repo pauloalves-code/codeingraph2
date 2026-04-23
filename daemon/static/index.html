@@ -4,80 +4,159 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>codeingraph2 — war map</title>
-<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
-<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism-core.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
 <style>
   :root {
     --bg: #0f1115; --panel: #171a21; --panel2: #1f232c; --border: #262b36;
-    --fg: #e5e7eb; --muted: #9ba3b4; --accent: #4d94ff;
-    --color-file: #999999; --color-class: #ff4d4d;
-    --color-fn:   #4d94ff; --color-var:   #ffdb4d;
+    --fg: #e5e7eb; --muted: #9ba3b4; --accent: #7c6cff;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+  /* ── Header ─────────────────────────────────────────────────────────────── */
   header {
-    height: 48px; padding: 0 16px; display: flex; align-items: center; gap: 16px;
-    background: var(--panel); border-bottom: 1px solid var(--border); }
+    height: 48px; padding: 0 16px; display: flex; align-items: center; gap: 12px;
+    background: var(--panel); border-bottom: 1px solid var(--border); flex-shrink: 0; }
   header h1 { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: .3px; }
-  header .stats { color: var(--muted); font-size: 12px; }
+  header h1 .proj { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  header .stats { color: var(--muted); font-size: 12px; white-space: nowrap; }
   header .grow  { flex: 1; }
   header input[type=search] {
-    width: 320px; padding: 6px 10px; background: var(--panel2);
-    border: 1px solid var(--border); color: var(--fg); border-radius: 6px; font-size: 13px;
-  }
+    width: 260px; padding: 6px 10px; background: var(--panel2);
+    border: 1px solid var(--border); color: var(--fg); border-radius: 6px; font-size: 13px; }
   header select {
     padding: 6px 8px; background: var(--panel2); border: 1px solid var(--border);
-    color: var(--fg); border-radius: 6px; font-size: 12px;
-  }
+    color: var(--fg); border-radius: 6px; font-size: 12px; }
   header button {
     padding: 6px 12px; background: var(--accent); color: #fff;
-    border: none; border-radius: 6px; font-size: 12px; cursor: pointer;
-  }
+    border: none; border-radius: 6px; font-size: 12px; cursor: pointer; }
+
+  /* ── Layout ─────────────────────────────────────────────────────────────── */
   main { display: flex; height: calc(100% - 48px); }
-  #cy { flex: 1; background: var(--bg); }
+  #graph-wrap { flex: 1; position: relative; overflow: hidden; }
+  #graph { width: 100%; height: 100%; background: var(--bg); display: block; cursor: grab; }
+  #graph:active { cursor: grabbing; }
+
+  /* ── Aside panel ─────────────────────────────────────────────────────────── */
   aside {
     width: 440px; border-left: 1px solid var(--border); background: var(--panel);
-    overflow: auto; padding: 16px; font-size: 13px; }
-  aside h2 { font-size: 13px; color: var(--muted); text-transform: uppercase;
-    letter-spacing: .08em; margin: 0 0 8px; font-weight: 600; }
-  aside h3 { font-size: 15px; margin: 0 0 4px; word-wrap: break-word; }
-  aside .meta { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
-  aside .kv  { display: grid; grid-template-columns: 88px 1fr; gap: 4px 12px;
-    font-size: 12px; margin-bottom: 12px; }
-  aside .kv dt { color: var(--muted); }
-  aside .kv dd { margin: 0; word-break: break-all; }
-  aside .sig {
+    overflow-y: auto; font-size: 13px; display: flex; flex-direction: column; }
+
+  .p-section { border-bottom: 1px solid var(--border); }
+  .p-section:last-child { border-bottom: none; }
+
+  .p-hdr {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px; cursor: pointer; user-select: none; }
+  .p-hdr h2 {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .08em; margin: 0; font-weight: 600; flex: 1; }
+  .p-hdr .badge {
+    background: var(--panel2); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 999px; padding: 1px 7px; font-size: 10px; flex-shrink: 0; }
+  .p-hdr .caret { color: var(--muted); font-size: 10px; flex-shrink: 0;
+    transition: transform .15s; }
+  .p-hdr.collapsed .caret { transform: rotate(-90deg); }
+  .p-body { padding: 0 16px 14px; }
+  .p-body.hidden { display: none; }
+
+  .sym-name { font-size: 15px; font-weight: 600; margin: 0 0 8px; word-break: break-word; }
+  .chips { margin-bottom: 10px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+    border-radius: 999px; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--muted); font-size: 11px; margin: 0 4px 4px 0; }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  .kv { display: grid; grid-template-columns: 100px 1fr; gap: 5px 10px;
+    font-size: 12px; margin: 0; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; word-break: break-all; }
+
+  .sig-block {
     background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
-    padding: 8px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px; overflow-x: auto; white-space: pre;
-  }
+    padding: 8px 10px; font-family: ui-monospace, Menlo, monospace;
+    font-size: 11px; overflow-x: auto; white-space: pre; }
+
   aside pre { background: var(--panel2); border: 1px solid var(--border);
-    border-radius: 6px; padding: 12px; font-size: 12px; overflow: auto; margin: 0; }
-  aside .chip {
-    display: inline-block; padding: 1px 8px; border-radius: 999px;
-    background: var(--panel2); border: 1px solid var(--border);
-    color: var(--muted); font-size: 11px; margin-right: 6px;
-  }
-  aside .list { list-style: none; padding: 0; margin: 0 0 12px; }
-  aside .list li { padding: 4px 0; border-bottom: 1px dashed var(--border); cursor: pointer; }
-  aside .list li:hover { color: var(--accent); }
-  aside .list .rel-kind { color: var(--muted); font-size: 11px; margin-right: 6px; }
-  .placeholder { color: var(--muted); text-align: center; padding: 40px 0; }
+    border-radius: 6px; padding: 12px; font-size: 11px; overflow: auto;
+    margin: 0; max-height: 420px; }
+
+  .rel-list { list-style: none; padding: 0; margin: 0; }
+  .rel-list li {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 6px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .rel-list li:last-child { border-bottom: none; }
+  .rel-list li:hover { background: rgba(124,108,255,.07);
+    margin: 0 -16px; padding: 6px 16px; }
+  .rel-badge {
+    flex-shrink: 0; padding: 1px 5px; border-radius: 4px;
+    font-size: 10px; font-weight: 700; border: 1px solid;
+    text-transform: uppercase; letter-spacing: .04em; margin-top: 1px; }
+  .rel-name { flex: 1; word-break: break-word; font-size: 12px; }
+  .rel-line { flex-shrink: 0; color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+  .placeholder { color: var(--muted); text-align: center; padding: 60px 20px; font-size: 13px; line-height: 1.6; }
+  .err-msg { color: #ff6b6b; padding: 16px; font-size: 12px; }
+
+  /* ── Legend ──────────────────────────────────────────────────────────────── */
   .legend {
-    position: absolute; bottom: 12px; left: 12px;
+    position: absolute; bottom: 12px; left: 12px; z-index: 5;
     background: rgba(23,26,33,.9); border: 1px solid var(--border);
-    border-radius: 6px; padding: 8px 10px; font-size: 11px; color: var(--muted);
-  }
+    border-radius: 6px; padding: 8px 10px; font-size: 11px; color: var(--muted); }
   .legend .sw { display: inline-block; width: 10px; height: 10px;
     border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+
+  /* ── Settings panel ──────────────────────────────────────────────────────── */
+  #settings {
+    position: absolute; top: 12px; right: 12px; z-index: 10;
+    width: 260px; background: rgba(23,26,33,.96); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; color: var(--fg); font-size: 12px;
+    max-height: calc(100% - 24px); overflow-y: auto; }
+  #settings.collapsed .s-body { display: none; }
+  #settings .s-hdr { display: flex; align-items: center; gap: 8px; cursor: pointer;
+    font-weight: 600; user-select: none; }
+  #settings .s-hdr .caret { transition: transform .15s; }
+  #settings.collapsed .s-hdr .caret { transform: rotate(-90deg); }
+  #settings .grow { flex: 1; }
+  #settings .reset { background: transparent; color: var(--muted); border: none;
+    cursor: pointer; font-size: 14px; padding: 0 4px; }
+  #settings .reset:hover { color: var(--fg); }
+  #settings .s-body { margin-top: 10px; }
+  #settings .sep { border-top: 1px solid var(--border); margin: 10px 0; }
+  #settings .row { margin: 10px 0; }
+  #settings label { display: block; color: var(--muted); margin-bottom: 4px; }
+  #settings input[type=range] { width: 100%; accent-color: var(--accent); }
+  #settings .row .val { color: var(--fg); float: right; font-family: ui-monospace, monospace; }
+  #settings .toggle {
+    display: flex; align-items: center; justify-content: space-between;
+    margin: 8px 0; color: var(--muted); }
+  #settings .toggle span { flex: 1; }
+  #settings .expand-note { font-size: 10px; color: var(--muted); margin-top: 2px;
+    line-height: 1.4; padding-left: 2px; }
+
+  /* ── SVG graph ───────────────────────────────────────────────────────────── */
+  .link { stroke-opacity: 0.5; stroke-width: 1px; }
+  .link.hl   { stroke: #7c6cff !important; stroke-opacity: 1; stroke-width: 1.8px; }
+  .link.dim  { stroke-opacity: 0.04; }
+  .node { cursor: pointer; stroke: #0f1115; stroke-width: 1.5px; }
+  .node:hover { stroke: #fff; stroke-width: 2px; }
+  .node.sel  { stroke: #fff; stroke-width: 2.5px; }
+  .node.dim  { opacity: 0.12; }
+  .node.expanded { stroke: #7c6cff; stroke-width: 2px; stroke-dasharray: 3,2; }
+  .label { fill: #9ba3b4; font-size: 10px; pointer-events: none;
+    text-anchor: middle; dominant-baseline: hanging; }
+  .label.dim { opacity: 0.08; }
+  .label.hl  { fill: #e5e7eb; }
 </style>
 </head>
 <body>
 <header>
-  <h1>codeingraph2</h1>
+  <h1>codeingraph2<span class="proj" id="proj-name"></span></h1>
   <span class="stats" id="stats">—</span>
   <span class="grow"></span>
   <input type="search" id="q" placeholder="Buscar nome / qualificador...">
@@ -93,223 +172,592 @@
     <option value="enum">Enums</option>
     <option value="module">Módulos</option>
   </select>
-  <select id="limit">
-    <option value="200">200 nós</option>
-    <option value="500" selected>500 nós</option>
-    <option value="1000">1000 nós</option>
-    <option value="2000">2000 nós</option>
-  </select>
   <button id="reload">Recarregar</button>
 </header>
+
 <main>
-  <div id="cy"></div>
+  <div id="graph-wrap">
+    <svg id="graph"></svg>
+
+    <div id="settings">
+      <div class="s-hdr" id="settings-hdr">
+        <span class="caret">▾</span>
+        <span>Configurações</span>
+        <span class="grow"></span>
+        <button class="reset" id="settings-reset" title="Resetar forças">↺</button>
+      </div>
+      <div class="s-body">
+        <div class="toggle">
+          <span>Mostrar rótulos</span>
+          <input type="checkbox" id="show-labels" checked>
+        </div>
+        <div class="toggle">
+          <span>Expandir conexões ao clicar</span>
+          <input type="checkbox" id="expand-conn">
+        </div>
+        <div class="expand-note">
+          Quando ativo, clicar num nó traz todos os seus vizinhos para o grafo,
+          mesmo que estejam fora do filtro atual.
+        </div>
+        <div class="sep"></div>
+        <div class="toggle">
+          <span>Ocultar orfãos</span>
+          <input type="checkbox" id="hide-orphans">
+        </div>
+        <div class="toggle">
+          <span>Exibir somente orfãos</span>
+          <input type="checkbox" id="only-orphans">
+        </div>
+        <div class="sep"></div>
+        <div class="row">
+          <label>Força centrípeta <span class="val" id="v-center">0.05</span></label>
+          <input type="range" id="f-center" min="0" max="0.3" step="0.005" value="0.05">
+        </div>
+        <div class="row">
+          <label>Repulsão <span class="val" id="v-repel">500</span></label>
+          <input type="range" id="f-repel" min="10" max="3000" step="10" value="500">
+        </div>
+        <div class="row">
+          <label>Força dos links <span class="val" id="v-lstr">1.00</span></label>
+          <input type="range" id="f-lstr" min="0" max="3" step="0.05" value="1">
+        </div>
+        <div class="row">
+          <label>Distância dos links <span class="val" id="v-ldist">80</span></label>
+          <input type="range" id="f-ldist" min="10" max="500" step="5" value="80">
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div><span class="sw" style="background:#999"></span> Arquivos / Módulos</div>
+      <div><span class="sw" style="background:#ff4d4d"></span> Classes / Traits / Enums</div>
+      <div><span class="sw" style="background:#4d94ff"></span> Funções / Métodos</div>
+      <div><span class="sw" style="background:#ffdb4d"></span> Variáveis / Constantes</div>
+    </div>
+  </div>
+
   <aside id="panel">
-    <div class="placeholder">Clique em um nó ou aresta para ver detalhes.</div>
+    <div class="placeholder">Clique em um nó para ver informações.<br>Clique em uma aresta para ver a relação.</div>
   </aside>
 </main>
-<div class="legend">
-  <div><span class="sw" style="background:#999"></span> Files</div>
-  <div><span class="sw" style="background:#ff4d4d"></span> Classes / Traits / Enums</div>
-  <div><span class="sw" style="background:#4d94ff"></span> Functions / Methods</div>
-  <div><span class="sw" style="background:#ffdb4d"></span> Variables / Constants</div>
-</div>
 
 <script>
+// ── Paletas ─────────────────────────────────────────────────────────────────
 const COLOR = {
   file: '#999999', module: '#999999',
   class: '#ff4d4d', trait: '#ff4d4d', enum: '#ff4d4d',
   function: '#4d94ff', method: '#4d94ff',
   variable: '#ffdb4d', constant: '#ffdb4d',
 };
-const RELATION_COLOR = {
-  calls: '#4d94ff', imports: '#9ba3b4', inherits: '#ff4d4d',
-  contains: '#555', references: '#ffdb4d', implements: '#ff7aa2',
-  assigns: '#b38bff', reads: '#6ee7b7',
+const REL_COLOR = {
+  calls: '#6ea8ff', imports: '#c8cdd6', inherits: '#ff6b6b',
+  contains: '#8b93a3', references: '#ffd966', implements: '#ff9bb8',
+  assigns: '#c4a6ff', reads: '#7ee2b5',
 };
-const LANG_BY_EXT = {
+const KIND_PT = {
+  calls: 'chama', imports: 'importa', inherits: 'herda',
+  contains: 'contém', references: 'referencia', implements: 'implementa',
+  assigns: 'atribui', reads: 'lê',
+  file: 'arquivo', class: 'classe', function: 'função', method: 'método',
+  variable: 'variável', constant: 'constante', trait: 'trait',
+  enum: 'enum', module: 'módulo',
+};
+const LANG_EXT = {
   rs:'rust', py:'python', js:'javascript', mjs:'javascript', cjs:'javascript',
   ts:'typescript', tsx:'tsx',
 };
 
+// ── Physics ──────────────────────────────────────────────────────────────────
+const PHYS_DEF = { center: 0.05, repel: 500, lstr: 1, ldist: 80 };
+const phys = { ...PHYS_DEF };
+const LDIST_MULT = {
+  contains: 0.35, inherits: 0.5, implements: 0.5,
+  calls: 1.0, references: 1.1, assigns: 0.8, reads: 0.9, imports: 1.6,
+};
+function ldistFn(d) { return phys.ldist * (LDIST_MULT[d.kind] || 1); }
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 async function fetchJSON(url) {
   const r = await fetch(url);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${url}`);
+  if (!r.ok) {
+    let msg = `${r.status} ${r.statusText}`;
+    try { const j = await r.json(); if (j && j.error) msg = j.error; } catch {}
+    throw new Error(msg + ' — ' + url);
+  }
   return r.json();
 }
-
 function colorFor(kind) { return COLOR[kind] || '#888'; }
-function sizeFor(fan) { return Math.min(70, 18 + Math.sqrt(fan || 0) * 5); }
+function sizeFor(fan)   { return Math.min(22, 5 + Math.sqrt(fan || 0) * 1.6); }
+function esc(s)         { return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function kindPT(k)      { return KIND_PT[k] || k; }
+function langOf(p)      { return LANG_EXT[(p||'').split('.').pop()] || 'clike'; }
 
-let cy = null;
+// ── D3 setup ─────────────────────────────────────────────────────────────────
+const svg       = d3.select('#graph');
+const svgEl     = svg.node();
+const zoom      = svg.append('g').attr('class', 'zoom');
+const linkG     = zoom.append('g');
+const nodeG     = zoom.append('g');
+const labelG    = zoom.append('g');
+
+const zoomB = d3.zoom().scaleExtent([0.05, 10])
+  .on('zoom', ev => zoom.attr('transform', ev.transform));
+svg.call(zoomB);
+svg.on('click', ev => { if (ev.target === svgEl) clearHL(); });
+
+const sim = d3.forceSimulation()
+  .force('link',    d3.forceLink().id(d => d.id).distance(ldistFn).strength(phys.lstr))
+  .force('charge',  d3.forceManyBody().strength(-phys.repel))
+  .force('x',       d3.forceX(0).strength(phys.center))
+  .force('y',       d3.forceY(0).strength(phys.center))
+  .force('center',  d3.forceCenter(0, 0))
+  .force('collide', d3.forceCollide().radius(d => sizeFor(d.fan) + 2))
+  .alphaDecay(0.02).velocityDecay(0.5);
+
+let nodes = [], links = [];
+let expandedIds = new Set();
+let linkSel  = linkG.selectAll('line');
+let nodeSel  = nodeG.selectAll('circle');
+let labelSel = labelG.selectAll('text');
+let selId      = null;
+let showLbls   = true;
+let expandMode = false;
+let hideOrphans = false;
+let onlyOrphans = false;
+
+function centerVP() {
+  const { width, height } = svgEl.getBoundingClientRect();
+  svg.call(zoomB.transform, d3.zoomIdentity.translate(width / 2, height / 2));
+}
+
+function applyPhys() {
+  sim.force('link').distance(ldistFn).strength(phys.lstr);
+  sim.force('charge').strength(-phys.repel);
+  sim.force('x').strength(phys.center);
+  sim.force('y').strength(phys.center);
+  sim.alpha(0.6).restart();
+}
+
+function tick() {
+  linkSel.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+         .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+  nodeSel.attr('cx', d => d.x).attr('cy', d => d.y);
+  if (showLbls) labelSel.attr('x', d => d.x).attr('y', d => d.y + sizeFor(d.fan) + 3);
+}
+
+function dragB() {
+  return d3.drag()
+    .on('start', (ev, d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+    .on('drag',  (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+    .on('end',   (ev, d) => { if (!ev.active) sim.alphaTarget(0); d.fx = null; d.fy = null; });
+}
+
+function render(alpha = 1) {
+  linkSel = linkG.selectAll('line').data(links, d => d.id).join(
+    enter => enter.append('line').attr('class', 'link')
+      .on('click', (ev, d) => { ev.stopPropagation(); showEdge(d.numId); })
+  );
+  linkSel.style('stroke', d => REL_COLOR[d.kind] || '#8b93a3');
+
+  nodeSel = nodeG.selectAll('circle').data(nodes, d => d.id).join(
+    enter => enter.append('circle')
+      .attr('r', d => sizeFor(d.fan))
+      .attr('fill', d => colorFor(d.kind))
+      .on('click', (ev, d) => { ev.stopPropagation(); selectNode(d); })
+      .call(dragB())
+  );
+  nodeSel.attr('class', d => 'node' + (expandedIds.has(d.id) ? ' expanded' : ''));
+
+  labelSel = labelG.selectAll('text').data(nodes, d => d.id).join(
+    enter => enter.append('text').attr('class', 'label').text(d => d.label)
+  );
+  labelSel.style('display', showLbls ? null : 'none');
+
+  sim.nodes(nodes).on('tick', tick);
+  sim.force('link').links(links);
+  sim.alpha(alpha).restart();
+  applyOrphanFilter();
+}
+
+// ── Orphan filter ─────────────────────────────────────────────────────────────
+function connectedNodeIds() {
+  const has = new Set();
+  for (const l of links) {
+    has.add(typeof l.source === 'object' ? l.source.id : l.source);
+    has.add(typeof l.target === 'object' ? l.target.id : l.target);
+  }
+  return has;
+}
+
+function applyOrphanFilter() {
+  if (!hideOrphans && !onlyOrphans) {
+    nodeSel.style('display', null);
+    labelSel.style('display', showLbls ? null : 'none');
+    linkSel.style('display', null);
+    return;
+  }
+  const connected = connectedNodeIds();
+  nodeSel.style('display', d => {
+    const orphan = !connected.has(d.id);
+    if (hideOrphans && orphan)  return 'none';
+    if (onlyOrphans && !orphan) return 'none';
+    return null;
+  });
+  labelSel.style('display', d => {
+    if (!showLbls) return 'none';
+    const orphan = !connected.has(d.id);
+    if (hideOrphans && orphan)  return 'none';
+    if (onlyOrphans && !orphan) return 'none';
+    return null;
+  });
+  // When showing only orphans there are no edges to display
+  linkSel.style('display', onlyOrphans ? 'none' : null);
+}
+
+// ── Highlight ────────────────────────────────────────────────────────────────
+function neighborsOf(id) {
+  const keep = new Set([id]);
+  for (const l of links) {
+    const s = typeof l.source === 'object' ? l.source.id : l.source;
+    const t = typeof l.target === 'object' ? l.target.id : l.target;
+    if (s === id) keep.add(t);
+    if (t === id) keep.add(s);
+  }
+  return keep;
+}
+
+function applyHL(id) {
+  const keep = neighborsOf(id);
+  nodeSel.classed('dim', n => !keep.has(n.id)).classed('sel', n => n.id === id);
+  labelSel.classed('dim', n => !keep.has(n.id)).classed('hl', n => n.id === id);
+  linkSel.classed('dim', l => {
+    const s = typeof l.source === 'object' ? l.source.id : l.source;
+    const t = typeof l.target === 'object' ? l.target.id : l.target;
+    return !(keep.has(s) && keep.has(t));
+  }).classed('hl', l => {
+    const s = typeof l.source === 'object' ? l.source.id : l.source;
+    const t = typeof l.target === 'object' ? l.target.id : l.target;
+    return s === id || t === id;
+  });
+}
+
+function clearHL() {
+  selId = null;
+  nodeSel.classed('dim', false).classed('sel', false);
+  labelSel.classed('dim', false).classed('hl', false);
+  linkSel.classed('dim', false).classed('hl', false);
+}
+
+// ── Expand connections ───────────────────────────────────────────────────────
+const MAX_EXPAND = 40;
+
+async function doExpand(d, nd) {
+  const haveIds   = new Set(nodes.map(n => n.id));
+  const haveLIds  = new Set(links.map(l => l.id));
+  const toFetch   = new Map();
+
+  for (const e of nd.outgoing)
+    if (e.target_id && !haveIds.has(String(e.target_id)))
+      toFetch.set(String(e.target_id), true);
+  for (const e of nd.incoming)
+    if (e.source_id && !haveIds.has(String(e.source_id)))
+      toFetch.set(String(e.source_id), true);
+
+  const newNodes = [];
+  for (const cid of [...toFetch.keys()].slice(0, MAX_EXPAND)) {
+    try {
+      const n   = await fetchJSON(`/api/node/${cid}`);
+      const fan = n.incoming.length + n.outgoing.length;
+      const ang = Math.random() * 2 * Math.PI;
+      const dst = 80 + Math.random() * 80;
+      newNodes.push({
+        id: cid, label: (n.qname||'').split(/[/:.>]/).pop() || n.qname,
+        kind: n.kind, qname: n.qname, file: n.file,
+        start: n.start_line, end: n.end_line, fan,
+        x: (d.x||0) + Math.cos(ang)*dst,
+        y: (d.y||0) + Math.sin(ang)*dst,
+      });
+      haveIds.add(cid);
+      expandedIds.add(cid);
+    } catch {}
+  }
+
+  const newLinks = [];
+  for (const e of nd.outgoing) {
+    if (!e.target_id) continue;
+    const lid = 'e' + e.id;
+    if (!haveLIds.has(lid) && haveIds.has(String(e.target_id))) {
+      newLinks.push({ id: lid, numId: e.id, source: d.id, target: String(e.target_id), kind: e.kind, line: e.line });
+      haveLIds.add(lid);
+    }
+  }
+  for (const e of nd.incoming) {
+    if (!e.source_id) continue;
+    const lid = 'e' + e.id;
+    if (!haveLIds.has(lid) && haveIds.has(String(e.source_id))) {
+      newLinks.push({ id: lid, numId: e.id, source: String(e.source_id), target: d.id, kind: e.kind, line: e.line });
+      haveLIds.add(lid);
+    }
+  }
+
+  if (newNodes.length || newLinks.length) {
+    nodes.push(...newNodes);
+    links.push(...newLinks);
+    render(0.3);
+  }
+}
+
+// ── Graph load ───────────────────────────────────────────────────────────────
 async function loadGraph() {
-  const q     = document.getElementById('q').value.trim();
-  const kind  = document.getElementById('kind').value;
-  const limit = document.getElementById('limit').value;
-  const params = new URLSearchParams();
-  if (q)    params.set('q', q);
-  if (kind) params.set('kind', kind);
-  if (limit)params.set('limit', limit);
+  const q    = document.getElementById('q').value.trim();
+  const kind = document.getElementById('kind').value;
+  const p    = new URLSearchParams({ limit: '0' });
+  if (q)    p.set('q', q);
+  if (kind) p.set('kind', kind);
 
-  const stats = await fetchJSON('/api/stats');
+  const [stats, data] = await Promise.all([
+    fetchJSON('/api/stats'),
+    fetchJSON('/api/graph?' + p),
+  ]);
+
+  if (stats.project) {
+    document.getElementById('proj-name').textContent = ' / ' + stats.project;
+    document.title = `codeingraph2 — ${stats.project}`;
+  }
+  const unresolved = stats.relations - data.edges.length;
   document.getElementById('stats').textContent =
-    `${stats.files} arquivos · ${stats.symbols} símbolos · ${stats.relations} relações`;
+    `${stats.files} arqs · ${stats.symbols} síms · ${data.edges.length} relações` +
+    (unresolved > 0 ? ` (+${unresolved} sem alvo)` : '');
 
-  const data = await fetchJSON('/api/graph?' + params);
-  const nodes = data.nodes.map(n => ({ data: {
-    id: String(n.id), label: n.name, kind: n.kind,
-    qname: n.qname, file: n.file, start: n.start, end: n.end,
+  nodes = data.nodes.map(n => ({
+    id: String(n.id), label: n.name, kind: n.kind, qname: n.qname,
+    file: n.file, start: n.start, end: n.end,
     fan: (n.fan_in||0) + (n.fan_out||0),
-  }}));
-  const edges = data.edges.map(e => ({ data: {
-    id: 'e'+e.id, source: String(e.source), target: String(e.target),
+  }));
+  links = data.edges.map(e => ({
+    id: 'e' + e.id, numId: e.id,
+    source: String(e.source), target: String(e.target),
     kind: e.kind, line: e.line,
-  }}));
+  }));
 
-  if (cy) cy.destroy();
-  cy = cytoscape({
-    container: document.getElementById('cy'),
-    elements: [...nodes, ...edges],
-    style: [
-      { selector: 'node', style: {
-          'background-color': ele => colorFor(ele.data('kind')),
-          'label': 'data(label)', 'color': '#e5e7eb', 'font-size': 10,
-          'text-valign': 'bottom', 'text-margin-y': 4,
-          'width':  ele => sizeFor(ele.data('fan')),
-          'height': ele => sizeFor(ele.data('fan')),
-          'border-width': 1, 'border-color': '#0f1115',
-      }},
-      { selector: 'node:selected', style: {
-          'border-width': 3, 'border-color': '#fff',
-      }},
-      { selector: 'edge', style: {
-          'width': 1,
-          'line-color': ele => RELATION_COLOR[ele.data('kind')] || '#555',
-          'target-arrow-color': ele => RELATION_COLOR[ele.data('kind')] || '#555',
-          'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'opacity': 0.7,
-      }},
-      { selector: 'edge:selected', style: {
-          'width': 3, 'opacity': 1,
-      }},
-      { selector: '.dim', style: { 'opacity': 0.08 } },
-    ],
-    layout: {
-      name: 'cose', animate: false, randomize: true,
-      nodeRepulsion: () => 6000, idealEdgeLength: () => 90,
-      edgeElasticity: () => 100, gravity: 1,
-    },
-    wheelSensitivity: 0.3,
-  });
-
-  cy.on('tap', 'node', async (evt) => {
-    const id = evt.target.id();
-    await showNode(id);
-    highlightNeighborhood(evt.target);
-  });
-  cy.on('tap', 'edge', async (evt) => {
-    const id = evt.target.id().replace(/^e/, '');
-    await showEdge(id);
-  });
-  cy.on('tap', (evt) => {
-    if (evt.target === cy) { cy.elements().removeClass('dim'); }
-  });
+  expandedIds.clear();
+  selId = null;
+  centerVP();
+  render();
 }
 
-function highlightNeighborhood(node) {
-  const keep = node.closedNeighborhood();
-  cy.elements().addClass('dim');
-  keep.removeClass('dim');
+// ── Panel helpers ────────────────────────────────────────────────────────────
+function section(title, badge, bodyHTML, startCollapsed = false) {
+  const b = badge != null ? `<span class="badge">${badge}</span>` : '';
+  const hc = startCollapsed ? ' collapsed' : '';
+  const bc = startCollapsed ? ' hidden' : '';
+  return `<div class="p-section">
+    <div class="p-hdr${hc}" onclick="toggleSec(this)">
+      <h2>${esc(title)}</h2>${b}<span class="caret">▾</span>
+    </div>
+    <div class="p-body${bc}">${bodyHTML}</div>
+  </div>`;
 }
 
-function langOf(path) {
-  const ext = (path || '').split('.').pop();
-  return LANG_BY_EXT[ext] || 'clike';
+function toggleSec(hdr) {
+  hdr.classList.toggle('collapsed');
+  hdr.nextElementSibling.classList.toggle('hidden');
 }
 
-function escapeHTML(s) {
-  return (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+// ── Node panel ───────────────────────────────────────────────────────────────
+function showLoading(msg = 'Carregando…') {
+  document.getElementById('panel').innerHTML =
+    `<div class="placeholder"><span class="spinner"></span><br>${esc(msg)}</div>`;
+}
+
+async function selectNode(d) {
+  selId = d.id;
+  showLoading();
+  let nd;
+  try { nd = await fetchJSON(`/api/node/${d.id}`); }
+  catch (err) { panelErr(`Erro ao carregar nó: ${err.message}`); return; }
+
+  if (expandMode) await doExpand(d, nd);
+
+  applyHL(d.id);
+  renderNodePanel(d.id, nd);
 }
 
 async function showNode(id) {
-  const n = await fetchJSON(`/api/node/${id}`);
-  const lang = langOf(n.file);
-  const out = [];
-  out.push('<h2>Nó</h2>');
-  out.push(`<h3>${escapeHTML(n.qname)}</h3>`);
-  out.push(`<div class="meta">
-    <span class="chip">${escapeHTML(n.kind)}</span>
-    <span class="chip">${escapeHTML(n.language || '?')}</span>
-    ${n.visibility ? `<span class="chip">${escapeHTML(n.visibility)}</span>` : ''}
-  </div>`);
-  out.push(`<dl class="kv">
-    <dt>Arquivo</dt><dd>${escapeHTML(n.file)}</dd>
-    <dt>Linhas</dt><dd>${n.start_line}–${n.end_line}</dd>
-    <dt>fan-in</dt><dd>${n.incoming.length}</dd>
-    <dt>fan-out</dt><dd>${n.outgoing.length}</dd>
-  </dl>`);
-  if (n.signature)
-    out.push(`<div class="sig">${escapeHTML(n.signature)}</div>`);
-  if (n.docstring)
-    out.push(`<p class="meta">${escapeHTML(n.docstring)}</p>`);
-  out.push(`<h2>Código</h2><pre><code class="language-${lang}">${escapeHTML(n.source || '(arquivo não acessível)')}</code></pre>`);
+  showLoading();
+  let nd;
+  try { nd = await fetchJSON(`/api/node/${id}`); }
+  catch (err) { panelErr(`Erro ao carregar nó: ${err.message}`); return; }
+  renderNodePanel(id, nd);
+}
 
+function renderNodePanel(id, n) {
+  const lang = langOf(n.file);
+  const parts = [];
+
+  // — Informações básicas —
+  const dot   = colorFor(n.kind);
+  const chips = `
+    <span class="chip"><span class="dot" style="background:${dot}"></span>${esc(kindPT(n.kind))}</span>
+    <span class="chip">${esc(n.language || '?')}</span>
+    ${n.visibility ? `<span class="chip">${esc(n.visibility)}</span>` : ''}`;
+  const basicHTML = `
+    <p class="sym-name">${esc(n.qname)}</p>
+    <div class="chips">${chips}</div>
+    <dl class="kv">
+      <dt>Arquivo</dt><dd title="${esc(n.file)}">${esc(n.file)}</dd>
+      <dt>Linhas</dt><dd>${n.start_line} – ${n.end_line}</dd>
+      <dt>Dependências</dt><dd>${n.outgoing.length}</dd>
+      <dt>Dependentes</dt><dd>${n.incoming.length}</dd>
+    </dl>`;
+  parts.push(section('Informações básicas', null, basicHTML, false));
+
+  // — Assinatura —
+  if (n.signature)
+    parts.push(section('Assinatura', null, `<div class="sig-block">${esc(n.signature)}</div>`, false));
+
+  // — Código fonte —
+  const src = n.source || '';
+  const codeHTML = src
+    ? `<pre><code class="language-${lang}">${esc(src)}</code></pre>`
+    : `<p style="color:var(--muted);font-size:12px;margin:0">Arquivo não acessível no target atual.</p>`;
+  parts.push(section('Código fonte', null, codeHTML, !src));
+
+  // — Depende de (outgoing) —
   if (n.outgoing.length) {
-    out.push('<h2>Sai de</h2><ul class="list">');
+    let li = '<ul class="rel-list">';
     for (const e of n.outgoing) {
-      const label = e.target_qname || e.target_name || '(externo)';
-      out.push(`<li data-kind="node" data-id="${e.target_id||''}">
-        <span class="rel-kind">${escapeHTML(e.kind)} L${e.line}</span>${escapeHTML(label)}
-      </li>`);
+      const lbl   = e.target_qname || e.target_name || '(externo)';
+      const rc    = REL_COLOR[e.kind] || '#8b93a3';
+      const did   = e.target_id || '';
+      li += `<li data-id="${did}">
+        <span class="rel-badge" style="color:${rc};border-color:${rc}">${esc(kindPT(e.kind))}</span>
+        <span class="rel-name">${esc(lbl)}</span>
+        <span class="rel-line">L${e.line}</span>
+      </li>`;
     }
-    out.push('</ul>');
+    li += '</ul>';
+    parts.push(section('Depende de', n.outgoing.length, li, false));
   }
+
+  // — Dependentes (incoming) —
   if (n.incoming.length) {
-    out.push('<h2>Entra de</h2><ul class="list">');
+    let li = '<ul class="rel-list">';
     for (const e of n.incoming) {
-      out.push(`<li data-kind="node" data-id="${e.source_id}">
-        <span class="rel-kind">${escapeHTML(e.kind)} L${e.line}</span>${escapeHTML(e.source_qname)}
-      </li>`);
+      const rc = REL_COLOR[e.kind] || '#8b93a3';
+      li += `<li data-id="${e.source_id}">
+        <span class="rel-badge" style="color:${rc};border-color:${rc}">${esc(kindPT(e.kind))}</span>
+        <span class="rel-name">${esc(e.source_qname)}</span>
+        <span class="rel-line">L${e.line}</span>
+      </li>`;
     }
-    out.push('</ul>');
+    li += '</ul>';
+    // Collapse dependents automatically when there are many
+    parts.push(section('Dependentes', n.incoming.length, li, n.incoming.length > 15));
   }
+
   const panel = document.getElementById('panel');
-  panel.innerHTML = out.join('');
-  panel.querySelectorAll('.list li[data-id]').forEach(li => {
+  panel.innerHTML = parts.join('');
+
+  panel.querySelectorAll('.rel-list li[data-id]').forEach(li => {
     li.addEventListener('click', () => {
-      const id = li.dataset.id; if (!id) return;
-      const n = cy.getElementById(id); if (n.length) { n.select(); cy.center(n); highlightNeighborhood(n); showNode(id); }
-      else { showNode(id); }
+      const id = li.dataset.id;
+      if (!id) return;
+      const t = nodes.find(n => n.id === String(id));
+      if (t) selectNode(t);
+      else   showNode(id);
     });
   });
+
   Prism.highlightAllUnder(panel);
 }
 
-async function showEdge(id) {
-  const e = await fetchJSON(`/api/edge/${id}`);
+// ── Edge panel ───────────────────────────────────────────────────────────────
+async function showEdge(numId) {
+  let e;
+  try { e = await fetchJSON(`/api/edge/${numId}`); }
+  catch (err) { panelErr(`Erro ao carregar relação: ${err.message}`); return; }
+
   const lang = langOf(e.source.file);
+  const rc   = REL_COLOR[e.kind] || '#8b93a3';
   const panel = document.getElementById('panel');
-  panel.innerHTML = `
-    <h2>Relação</h2>
-    <h3>${escapeHTML(e.kind)} · L${e.line}</h3>
+
+  const infoHTML = `
+    <p class="sym-name" style="color:${rc}">${esc(kindPT(e.kind))}</p>
     <dl class="kv">
-      <dt>De</dt><dd>${escapeHTML(e.source.qname)}</dd>
-      <dt>Para</dt><dd>${escapeHTML(e.target.qname || e.target.name || '(externo)')}</dd>
-      <dt>Arquivo</dt><dd>${escapeHTML(e.source.file)}:${e.line}</dd>
-    </dl>
-    <h2>Contexto</h2>
-    <pre><code class="language-${lang}">${escapeHTML(e.context.source || '')}</code></pre>
-  `;
+      <dt>De</dt><dd>${esc(e.source.qname)}</dd>
+      <dt>Para</dt><dd>${esc(e.target.qname || e.target.name || '(externo)')}</dd>
+      <dt>Arquivo</dt><dd>${esc(e.source.file)}</dd>
+      <dt>Linha</dt><dd>${e.line}</dd>
+    </dl>`;
+  const ctxHTML = e.context.source
+    ? `<pre><code class="language-${lang}">${esc(e.context.source)}</code></pre>`
+    : `<p style="color:var(--muted);font-size:12px;margin:0">Contexto não disponível.</p>`;
+
+  panel.innerHTML =
+    section('Relação', null, infoHTML, false) +
+    section('Contexto', null, ctxHTML, false);
+
   Prism.highlightAllUnder(panel);
 }
 
+function panelErr(msg) {
+  document.getElementById('panel').innerHTML = `<div class="err-msg">⚠ ${esc(msg)}</div>`;
+}
+
+// ── Settings bindings ────────────────────────────────────────────────────────
+function bindSlider(iid, vid, key, fmt = String) {
+  const inp = document.getElementById(iid);
+  const vel = document.getElementById(vid);
+  vel.textContent = fmt(phys[key]);
+  inp.value = phys[key];
+  inp.addEventListener('input', () => { phys[key] = parseFloat(inp.value); vel.textContent = fmt(phys[key]); applyPhys(); });
+}
+bindSlider('f-center', 'v-center', 'center', v => v.toFixed(3));
+bindSlider('f-repel',  'v-repel',  'repel',  v => String(Math.round(v)));
+bindSlider('f-lstr',   'v-lstr',   'lstr',   v => v.toFixed(2));
+bindSlider('f-ldist',  'v-ldist',  'ldist',  v => String(Math.round(v)));
+
+document.getElementById('settings-hdr').addEventListener('click', ev => {
+  if (ev.target.id === 'settings-reset') return;
+  document.getElementById('settings').classList.toggle('collapsed');
+});
+document.getElementById('settings-reset').addEventListener('click', ev => {
+  ev.stopPropagation();
+  Object.assign(phys, PHYS_DEF);
+  ['center','repel','lstr','ldist'].forEach(k => {
+    document.getElementById('f-' + k).value = phys[k];
+  });
+  document.getElementById('v-center').textContent = phys.center.toFixed(3);
+  document.getElementById('v-repel').textContent  = String(phys.repel);
+  document.getElementById('v-lstr').textContent   = phys.lstr.toFixed(2);
+  document.getElementById('v-ldist').textContent  = String(phys.ldist);
+  applyPhys();
+});
+
+document.getElementById('show-labels').addEventListener('change', ev => {
+  showLbls = ev.target.checked;
+  applyOrphanFilter(); // re-apply; labelSel display is set inside
+});
+document.getElementById('expand-conn').addEventListener('change', ev => {
+  expandMode = ev.target.checked;
+});
+document.getElementById('hide-orphans').addEventListener('change', ev => {
+  hideOrphans = ev.target.checked;
+  if (hideOrphans) { onlyOrphans = false; document.getElementById('only-orphans').checked = false; }
+  applyOrphanFilter();
+});
+document.getElementById('only-orphans').addEventListener('change', ev => {
+  onlyOrphans = ev.target.checked;
+  if (onlyOrphans) { hideOrphans = false; document.getElementById('hide-orphans').checked = false; }
+  applyOrphanFilter();
+});
 document.getElementById('reload').addEventListener('click', loadGraph);
 document.getElementById('q').addEventListener('keydown', ev => { if (ev.key === 'Enter') loadGraph(); });
 document.getElementById('kind').addEventListener('change', loadGraph);
-document.getElementById('limit').addEventListener('change', loadGraph);
+window.addEventListener('resize', centerVP);
 
-loadGraph().catch(err => {
-  document.getElementById('panel').innerHTML =
-    `<h2>Erro</h2><p class="meta">${escapeHTML(err.message)}</p>`;
-});
+loadGraph().catch(err => panelErr(err.message));
 </script>
 </body>
 </html>

@@ -80,18 +80,18 @@ async fn index() -> Response {
 
 #[derive(Deserialize)]
 struct GraphQuery {
-    #[serde(default = "default_limit")] limit: usize,
+    /// `0` (or missing) means "no limit".
+    #[serde(default)] limit: usize,
     kind: Option<String>,
     q:    Option<String>,   // name search
 }
-fn default_limit() -> usize { 500 }
 
 async fn api_graph(
     State(st): State<AppState>,
     Query(q):  Query<GraphQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let nodes_and_edges = st.pool.with_conn(|c| {
-        // pick symbols, with filters
+        // ── 1. Primary nodes (with kind / search filters) ──────────────────
         let mut sql = String::from(
             "SELECT s.id, s.name, s.qualified_name, s.kind, f.path, s.start_line, s.end_line,
                     COALESCE(i.fan_in,0), COALESCE(i.fan_out,0)
@@ -106,11 +106,14 @@ async fn api_graph(
             sql.push_str(" AND (s.name LIKE ? OR s.qualified_name LIKE ?)");
             let pat = format!("%{s}%"); p.push(pat.clone().into()); p.push(pat.into());
         }
-        sql.push_str(" ORDER BY (COALESCE(i.fan_in,0) + COALESCE(i.fan_out,0)) DESC LIMIT ?");
-        p.push((q.limit as i64).into());
+        sql.push_str(" ORDER BY (COALESCE(i.fan_in,0) + COALESCE(i.fan_out,0)) DESC");
+        if q.limit > 0 {
+            sql.push_str(" LIMIT ?");
+            p.push((q.limit as i64).into());
+        }
 
         let mut stmt = c.prepare(&sql)?;
-        let nodes: Vec<Value> = stmt.query_map(
+        let primary: Vec<Value> = stmt.query_map(
             rusqlite::params_from_iter(p.iter()),
             |r| Ok(json!({
                 "id":       r.get::<_,i64>(0)?,
@@ -125,29 +128,35 @@ async fn api_graph(
             })),
         )?.filter_map(Result::ok).collect();
 
-        // edges among the selected nodes only
-        let node_ids: Vec<i64> = nodes.iter()
-            .filter_map(|n| n.get("id").and_then(|v| v.as_i64()))
-            .collect();
-        if node_ids.is_empty() {
+        if primary.is_empty() {
             return Ok(json!({ "nodes": [], "edges": [] }));
         }
-        let placeholders = std::iter::repeat("?").take(node_ids.len()).collect::<Vec<_>>().join(",");
+
+        let primary_ids: Vec<i64> = primary.iter()
+            .filter_map(|n| n.get("id").and_then(|v| v.as_i64()))
+            .collect();
+        let ph = std::iter::repeat("?").take(primary_ids.len()).collect::<Vec<_>>().join(",");
+        let id_vals: Vec<rusqlite::types::Value> = primary_ids.iter().map(|&id| id.into()).collect();
+
+        // ── 2. Edges ────────────────────────────────────────────────────────
+        // Always strict: only show edges where BOTH endpoints are in the
+        // primary (filtered) set. When a kind filter is active this keeps
+        // only same-kind cross-edges; neighbours of other kinds can be
+        // explored via the "Expandir conexões" feature in the UI.
         let edge_sql = format!(
             "SELECT id, source_symbol_id, target_symbol_id, relation_kind, line, weight
              FROM relations
              WHERE target_symbol_id IS NOT NULL
                AND source_symbol_id IN ({ph})
                AND target_symbol_id IN ({ph})",
-            ph = placeholders,
+            ph = ph,
         );
-        let edge_params: Vec<rusqlite::types::Value> = node_ids.iter().map(|&id| id.into()).collect();
+        let edge_params: Vec<rusqlite::types::Value> =
+            id_vals.iter().chain(id_vals.iter()).cloned().collect();
+
         let mut stmt = c.prepare(&edge_sql)?;
-        // We need to double the params since both IN clauses use the same ids.
-        let all: Vec<rusqlite::types::Value> = edge_params.iter().chain(edge_params.iter())
-            .cloned().collect();
         let edges: Vec<Value> = stmt.query_map(
-            rusqlite::params_from_iter(all.iter()),
+            rusqlite::params_from_iter(edge_params.iter()),
             |r| Ok(json!({
                 "id":     r.get::<_,i64>(0)?,
                 "source": r.get::<_,i64>(1)?,
@@ -157,6 +166,11 @@ async fn api_graph(
                 "weight": r.get::<_,f64>(5)?,
             })),
         )?.filter_map(Result::ok).collect();
+
+        // ── 3. Nodes ────────────────────────────────────────────────────────
+        // No secondary-node expansion: the primary set is the final node list.
+        // (Use "Expandir conexões ao clicar" in the UI to explore neighbours.)
+        let nodes = primary;
 
         Ok(json!({ "nodes": nodes, "edges": edges }))
     })?;
@@ -289,27 +303,39 @@ async fn api_stats(State(st): State<AppState>) -> Result<Json<Value>, ApiError> 
             "by_kind": by_kind,
         }))
     })?;
+    let mut v = v;
+    v["project"] = Value::String(st.cfg.project_name.clone());
     Ok(Json(v))
 }
 
 // --- helpers --------------------------------------------------------------
 
 /// Read lines [start, end] (1-based, inclusive) from `target_root / rel_path`.
-/// Rejects any rel_path that escapes target_root, preventing traversal.
+/// Guards against path traversal without relying on canonicalize() — which
+/// can fail or return unexpected paths on bind-mounted Docker volumes.
 fn read_slice(target_root: &std::path::Path, rel_path: &str, start: i64, end: i64) -> Result<String> {
-    use std::path::PathBuf;
-    let joined = target_root.join(rel_path);
-    let canon_root = target_root.canonicalize().unwrap_or_else(|_| target_root.to_path_buf());
-    let canon = joined.canonicalize().unwrap_or_else(|_| PathBuf::from(&joined));
-    if !canon.starts_with(&canon_root) {
+    // Reject obviously dangerous paths before joining.
+    if rel_path.contains("..") || rel_path.starts_with('/') {
+        anyhow::bail!("unsafe path: {rel_path}");
+    }
+    let path = target_root.join(rel_path);
+
+    // Secondary check: normalised string prefix (handles any remaining edge cases).
+    let root_str = target_root.to_string_lossy();
+    let path_str = path.to_string_lossy();
+    if !path_str.starts_with(root_str.as_ref()) {
         anyhow::bail!("path escapes target root");
     }
-    let content = std::fs::read_to_string(&canon)?;
+
+    let content = std::fs::read_to_string(&path)?;
     let s = (start.max(1) - 1) as usize;
-    let e = (end.max(start)) as usize;
+    let e = end.max(start) as usize;
+    // Collect lines s..=e-1 (0-based) = start..=end (1-based)
     let out: Vec<&str> = content.lines().enumerate()
-        .filter(|(i, _)| *i >= s && *i < e)
-        .map(|(_, l)| l).collect();
+        .skip(s)
+        .take(e - s)
+        .map(|(_, l)| l)
+        .collect();
     Ok(out.join("\n"))
 }
 

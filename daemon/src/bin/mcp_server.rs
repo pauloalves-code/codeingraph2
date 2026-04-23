@@ -104,7 +104,26 @@ fn initialize() -> Value {
     json!({
         "protocolVersion": "2024-11-05",
         "capabilities": { "tools": {} },
-        "serverInfo": { "name": "codeingraph2", "version": env!("CARGO_PKG_VERSION") }
+        "serverInfo": {
+            "name": "codeingraph2",
+            "version": env!("CARGO_PKG_VERSION")
+        },
+        "instructions": concat!(
+            "# CodeInGraph2 — Token-efficient code navigation\n\n",
+            "## ALWAYS use these tools BEFORE reading files:\n",
+            "1. `query_graph` — find the exact file:line for any symbol by name/kind.\n",
+            "2. `get_symbol` — get signature + location without opening the file.\n",
+            "3. `get_surgical_context` — get ONLY the affected snippets before a refactor (never read whole files).\n\n",
+            "## Workflow (saves 60-90% tokens vs raw file reads):\n",
+            "- Need a symbol location? → `get_symbol name`\n",
+            "- Need to understand what calls X? → `get_callers X depth=1`\n",
+            "- Need to refactor X? → `get_surgical_context X depth=2` then edit only the returned file:lines.\n",
+            "- Exploring an unknown codebase? → `graph_stats` then `query_graph kind=file` to see structure.\n\n",
+            "## Rules:\n",
+            "- NEVER read an entire file when you only need a function — use `get_symbol` + `Read(offset, limit)` on the exact lines.\n",
+            "- NEVER grep the whole repo for a symbol name — `query_graph name=X` is instant and exact.\n",
+            "- depth=1 is almost always enough; only use depth=2+ for deep refactors."
+        )
     })
 }
 
@@ -112,12 +131,15 @@ fn tools_list() -> Value {
     json!({ "tools": [
         {
             "name": "get_surgical_context",
-            "description": "Return the minimal set of code snippets impacted by a symbol — its definition, transitive callers up to `depth`, and inbound/outbound edges. Use before large refactors to see only what matters, not whole files.",
+            "description": "TOKEN SAVER: Returns ONLY the code snippets relevant to a symbol — definition + transitive callers/callees up to `depth`. Use this BEFORE any refactor instead of reading whole files. Returns file:start_line-end_line for each snippet so you can do targeted reads.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "symbol": { "type": "string", "description": "Qualified name (e.g. 'UserService::authenticate') or 'path/to/file.rs:42'" },
-                    "depth":  { "type": "integer", "minimum": 1, "maximum": 5, "default": 1 },
+                    "symbol": {
+                        "type": "string",
+                        "description": "Qualified name (e.g. 'MyModule::my_fn'), plain name, or 'path/to/file.rs:42' for line-based lookup."
+                    },
+                    "depth":  { "type": "integer", "minimum": 1, "maximum": 5, "default": 1, "description": "1 = direct callers only (fastest). 2 = transitive. Rarely need >2." },
                     "max_snippets": { "type": "integer", "minimum": 1, "maximum": 200, "default": 30 }
                 },
                 "required": ["symbol"]
@@ -125,29 +147,31 @@ fn tools_list() -> Value {
         },
         {
             "name": "query_graph",
-            "description": "Search symbols by name substring, kind, and/or file prefix.",
+            "description": "TOKEN SAVER: Find symbols by name/kind/file — returns file + exact line numbers. Use INSTEAD of grep. Example: {name:'authenticate', kind:'method'} finds the method without reading any file.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "name":  { "type": "string" },
+                    "name":  { "type": "string", "description": "Substring match against symbol name and qualified name." },
                     "kind":  { "type": "string", "enum": ["file","class","function","method","variable","constant","enum","trait","module"] },
-                    "file":  { "type": "string" },
-                    "limit": { "type": "integer", "default": 50 }
+                    "file":  { "type": "string", "description": "File path prefix filter (e.g. 'src/web')." },
+                    "limit": { "type": "integer", "default": 50, "description": "Max results." }
                 }
             }
         },
         {
             "name": "get_symbol",
-            "description": "Full metadata for one symbol by qualified name or id.",
+            "description": "Full metadata for one symbol: signature, file, exact lines, visibility, docstring. Use this to get the precise location before a targeted Read(offset, limit) — avoids reading whole files.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "symbol": { "type": "string" } },
+                "properties": {
+                    "symbol": { "type": "string", "description": "Qualified name or plain name." }
+                },
                 "required": ["symbol"]
             }
         },
         {
             "name": "get_callers",
-            "description": "Transitive callers of a symbol up to depth N.",
+            "description": "Who calls symbol X? Returns transitive callers up to depth N with file:line. Use to understand blast radius before changing a function signature.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -159,7 +183,7 @@ fn tools_list() -> Value {
         },
         {
             "name": "get_callees",
-            "description": "What a symbol calls (outbound edges).",
+            "description": "What does symbol X call? Returns outbound edges with file:line. Use to understand dependencies before deleting or moving a symbol.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "symbol": { "type": "string" } },
@@ -168,7 +192,7 @@ fn tools_list() -> Value {
         },
         {
             "name": "graph_stats",
-            "description": "Global graph counts (files, symbols, relations) and language breakdown.",
+            "description": "Global graph counts (files, symbols, relations) and per-language breakdown. Use first when exploring an unknown codebase to understand its size and structure.",
             "inputSchema": { "type": "object", "properties": {} }
         }
     ]})
