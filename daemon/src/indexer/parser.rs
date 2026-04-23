@@ -33,6 +33,7 @@ impl SymbolKind {
 #[derive(Debug, Clone, Copy, Serialize)]
 pub enum RelationKind {
     Calls, Inherits, Imports, References, Contains, Implements, Assigns, Reads,
+    UsesType,
 }
 impl RelationKind {
     pub fn as_str(&self) -> &'static str {
@@ -41,6 +42,7 @@ impl RelationKind {
             Self::Imports=>"imports", Self::References=> "references",
             Self::Contains=>"contains", Self::Implements=>"implements",
             Self::Assigns=>"assigns", Self::Reads     => "reads",
+            Self::UsesType => "uses_type",
         }
     }
 }

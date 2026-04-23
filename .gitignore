@@ -18,3 +18,6 @@ graph.db-*
 .vscode/
 .idea/
 *.swp
+
+# benchmark reports (local only)
+docs/benchmark-*.md

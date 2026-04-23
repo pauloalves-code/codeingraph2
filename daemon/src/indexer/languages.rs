@@ -92,6 +92,9 @@ fn javascript() -> LangSpec {
         relation_nodes: &[
             RelationNode { node_kind: "call_expression",   target_field: Some("function"), relation_kind: RelationKind::Calls },
             RelationNode { node_kind: "import_statement",  target_field: Some("source"),   relation_kind: RelationKind::Imports },
+            // Each named import specifier: import { Foo, Bar } from '…'
+            // target_field "name" covers aliased imports (Foo as F); first_identifier fallback covers plain (Foo).
+            RelationNode { node_kind: "import_specifier",  target_field: Some("name"),     relation_kind: RelationKind::UsesType },
         ],
     }
 }
@@ -110,6 +113,9 @@ fn typescript() -> LangSpec {
         relation_nodes: &[
             RelationNode { node_kind: "call_expression",  target_field: Some("function"), relation_kind: RelationKind::Calls },
             RelationNode { node_kind: "import_statement", target_field: Some("source"),   relation_kind: RelationKind::Imports },
+            // Each named import specifier: import { Foo } / import type { Foo } / import { type Foo }
+            // Works for aliases too: import { Foo as F } captures "Foo" via the "name" field.
+            RelationNode { node_kind: "import_specifier", target_field: Some("name"),     relation_kind: RelationKind::UsesType },
         ],
     }
 }
