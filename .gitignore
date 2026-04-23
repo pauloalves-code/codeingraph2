@@ -10,6 +10,7 @@ target/
 target_code/
 obsidian_vault/
 obsian/
+CLAUDE.md
 graph.db
 graph.db-*
 .env

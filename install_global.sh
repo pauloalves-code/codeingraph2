@@ -52,7 +52,7 @@ Controle:
   -h, --help           Esta ajuda
 
 Exemplos:
-  # Instalar para o projeto myproject na porta 3360
+  # Instalar para outro projeto na porta 3360
   $0 --target /docker/myproject --name myproject --port 3360
 
   # Instalar para codeingraph2 na porta 3358
