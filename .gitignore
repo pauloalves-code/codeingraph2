@@ -9,6 +9,7 @@ target/
 # runtime artefacts
 target_code/
 obsidian_vault/
+obsian/
 graph.db
 graph.db-*
 .env
