@@ -4,6 +4,12 @@ Daemon Docker que indexa um repositório em um grafo SQLite e o expõe via MCP p
 
 [Read in English](README_EN.md)
 
+## UI Web
+
+![codeingraph2 web viewer](docs/ui-screenshot.png)
+
+> Grafo interativo com força centrípeta, filtros por tipo, busca por nome e painel lateral com código-fonte ao clicar em qualquer nó ou aresta.
+
 ## O que gera
 
 | Saída | Descrição |

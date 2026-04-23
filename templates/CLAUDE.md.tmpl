@@ -24,19 +24,23 @@ Consulte **sempre** a ferramenta MCP `get_surgical_context` antes de:
 - Alterar hierarquias de classe, traits ou interfaces.
 - Mover arquivos ou módulos.
 
-O `get_surgical_context` retorna **apenas os trechos exatos** (file:line_start-line_end) dos call-sites, definições e dependências impactadas — use-os em vez de ler arquivos inteiros.
+O `get_surgical_context` retorna **o código-fonte completo** (`source`) de cada trecho impactado diretamente na resposta — **não é necessário fazer `Read` após essa chamada**. Use `patch_symbol` para editar sem precisar de `old_string`.
 
 ```jsonc
-// Exemplo de invocação
-{
-  "tool": "get_surgical_context",
-  "arguments": {
-    "symbol": "UserService.authenticate",   // ou "path/to/file.rs:42"
-    "depth": 2,                             // 1 = call-sites diretos, 2 = + transitivos
-    "max_snippets": 20
-  }
-}
+// Fluxo completo de refatoração sem nenhum Read extra:
+// 1. get_surgical_context  → já traz source de cada snippet
+// 2. patch_symbol          → edita pelo nome do símbolo, sem old_string
+
+{ "tool": "get_surgical_context", "arguments": { "symbol": "run_daemon", "depth": 1 } }
+// → resposta já inclui "source" de run_daemon e seus callers. Edite direto:
+{ "tool": "patch_symbol", "arguments": { "symbol": "run_daemon", "new_source": "..." } }
 ```
+
+> **IMPERATIVO — economia de tokens:**
+> - `get_surgical_context` já inclui `source` — **NUNCA** faça `Read` de um símbolo que acabou de aparecer no contexto cirúrgico.
+> - Se o MCP forneceu `start_line`/`end_line`, e mesmo assim precisar de `Read`, use **sempre** `Read(file, offset=start_line-1, limit=end_line-start_line+1)`. Jamais leia o arquivo inteiro.
+> - **NUNCA** use grep para encontrar um símbolo que existe no grafo — `query_graph name=X` é instantâneo e exato.
+> - Para editar um símbolo já localizado, prefira `patch_symbol` a `Edit` com `old_string`.
 
 ### 2. Convenções de código (detectadas pelo grafo)
 
@@ -71,7 +75,8 @@ Paleta:
 
 | Ferramenta               | O que faz |
 |--------------------------|-----------|
-| `get_surgical_context`   | Retorna trechos exatos de código impactados por um símbolo |
+| `get_surgical_context`   | Trechos exatos + **source completo** de cada snippet impactado por um símbolo |
+| `patch_symbol`           | Edita um símbolo pelo nome — sem `Read`, sem `old_string` |
 | `query_graph`            | Busca símbolos por nome / tipo / arquivo |
 | `get_symbol`             | Detalhes completos de um símbolo (signature, docstring, callers) |
 | `get_callers`            | Quem chama o símbolo X (transitivo até profundidade N) |

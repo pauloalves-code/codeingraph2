@@ -8,7 +8,8 @@
 //!   * tools/call              — with the tool set below
 //!
 //! Tools:
-//!   * `get_surgical_context`   surgical slices of code impacted by a symbol
+//!   * `get_surgical_context`   surgical slices with full source — no Read needed
+//!   * `patch_symbol`           edit a symbol by name — no old_string needed
 //!   * `query_graph`            search by name / kind / file
 //!   * `get_symbol`             full metadata for one symbol
 //!   * `get_callers`            who calls symbol X
@@ -16,13 +17,14 @@
 //!   * `graph_stats`            counts
 //!
 //! The server opens the SQLite DB in read-only mode; the daemon owns writes.
+//! patch_symbol writes directly to the target files — the daemon reindexes automatically.
 
 use anyhow::{anyhow, Context, Result};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() -> Result<()> {
     // Tracing to stderr (stdout is the MCP transport).
@@ -30,6 +32,10 @@ fn main() -> Result<()> {
 
     let db_path: PathBuf = std::env::var("CODEINGRAPH2_DB")
         .unwrap_or_else(|_| "/var/lib/codeingraph2/graph.db".into())
+        .into();
+
+    let target: PathBuf = std::env::var("CODEINGRAPH2_TARGET")
+        .unwrap_or_else(|_| "/target_code".into())
         .into();
 
     let stdin = std::io::stdin();
@@ -49,7 +55,7 @@ fn main() -> Result<()> {
             }
         };
 
-        let resp = handle(&db_path, &req);
+        let resp = handle(&db_path, &target, &req);
         let resp_line = match resp {
             Ok(result) => ok_response(req.id.clone(), result),
             Err(e)     => error_response(req.id.clone(), -32000, &e.to_string()),
@@ -87,14 +93,14 @@ fn error_response(id: Value, code: i64, message: &str) -> String {
     serde_json::to_string(&Response { jsonrpc: "2.0", id, result: None, error: Some(ErrObj { code, message }) }).unwrap()
 }
 
-fn handle(db_path: &PathBuf, req: &Request) -> Result<Value> {
+fn handle(db_path: &PathBuf, target: &Path, req: &Request) -> Result<Value> {
     if req.jsonrpc != "2.0" && !req.jsonrpc.is_empty() {
         return Err(anyhow!("unsupported jsonrpc version"));
     }
     match req.method.as_str() {
         "initialize"  => Ok(initialize()),
         "tools/list"  => Ok(tools_list()),
-        "tools/call"  => tools_call(db_path, &req.params),
+        "tools/call"  => tools_call(db_path, target, &req.params),
         "notifications/initialized" | "notifications/cancelled" => Ok(Value::Null),
         other => Err(anyhow!("method not found: {other}")),
     }
@@ -110,19 +116,19 @@ fn initialize() -> Value {
         },
         "instructions": concat!(
             "# CodeInGraph2 — Token-efficient code navigation\n\n",
-            "## ALWAYS use these tools BEFORE reading files:\n",
-            "1. `query_graph` — find the exact file:line for any symbol by name/kind.\n",
-            "2. `get_symbol` — get signature + location without opening the file.\n",
-            "3. `get_surgical_context` — get ONLY the affected snippets before a refactor (never read whole files).\n\n",
-            "## Workflow (saves 60-90% tokens vs raw file reads):\n",
-            "- Need a symbol location? → `get_symbol name`\n",
-            "- Need to understand what calls X? → `get_callers X depth=1`\n",
-            "- Need to refactor X? → `get_surgical_context X depth=2` then edit only the returned file:lines.\n",
-            "- Exploring an unknown codebase? → `graph_stats` then `query_graph kind=file` to see structure.\n\n",
-            "## Rules:\n",
-            "- NEVER read an entire file when you only need a function — use `get_symbol` + `Read(offset, limit)` on the exact lines.\n",
-            "- NEVER grep the whole repo for a symbol name — `query_graph name=X` is instant and exact.\n",
-            "- depth=1 is almost always enough; only use depth=2+ for deep refactors."
+            "## Core workflow (zero extra Reads):\n",
+            "1. `get_surgical_context` — returns file + exact lines + **full source** for every impacted snippet.\n",
+            "2. `patch_symbol`         — edit a symbol by name. No Read, no old_string needed.\n\n",
+            "## Other tools:\n",
+            "- `query_graph name=X`    — find any symbol instantly (replaces grep).\n",
+            "- `get_symbol name`       — signature + location for one symbol.\n",
+            "- `get_callers X depth=1` — blast radius before changing a signature.\n",
+            "- `graph_stats`           — explore an unknown codebase structure first.\n\n",
+            "## Hard rules:\n",
+            "- NEVER Read a file to find a symbol — use query_graph.\n",
+            "- NEVER Read after get_surgical_context — source is already in the response.\n",
+            "- If you must Read, always use offset=start_line-1 and limit=end_line-start_line+1.\n",
+            "- NEVER use Edit with old_string for a located symbol — use patch_symbol instead."
         )
     })
 }
@@ -131,7 +137,7 @@ fn tools_list() -> Value {
     json!({ "tools": [
         {
             "name": "get_surgical_context",
-            "description": "TOKEN SAVER: Returns ONLY the code snippets relevant to a symbol — definition + transitive callers/callees up to `depth`. Use this BEFORE any refactor instead of reading whole files. Returns file:start_line-end_line for each snippet so you can do targeted reads.",
+            "description": "TOKEN SAVER: Returns code snippets impacted by a symbol — each snippet includes its full `source` so no Read is needed afterward. Use before any refactor.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -139,15 +145,27 @@ fn tools_list() -> Value {
                         "type": "string",
                         "description": "Qualified name (e.g. 'MyModule::my_fn'), plain name, or 'path/to/file.rs:42' for line-based lookup."
                     },
-                    "depth":  { "type": "integer", "minimum": 1, "maximum": 5, "default": 1, "description": "1 = direct callers only (fastest). 2 = transitive. Rarely need >2." },
+                    "depth":        { "type": "integer", "minimum": 1, "maximum": 5, "default": 1, "description": "1 = direct callers/callees only (fastest). 2 = transitive." },
                     "max_snippets": { "type": "integer", "minimum": 1, "maximum": 200, "default": 30 }
                 },
                 "required": ["symbol"]
             }
         },
         {
+            "name": "patch_symbol",
+            "description": "TOKEN SAVER: Edit a symbol by name — looks up its exact file:lines in the graph and replaces them. No Read or old_string needed. The daemon reindexes automatically.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "symbol":     { "type": "string", "description": "Qualified name or plain name of the symbol to replace." },
+                    "new_source": { "type": "string", "description": "Complete new source code for this symbol (replaces the current start_line..end_line block)." }
+                },
+                "required": ["symbol", "new_source"]
+            }
+        },
+        {
             "name": "query_graph",
-            "description": "TOKEN SAVER: Find symbols by name/kind/file — returns file + exact line numbers. Use INSTEAD of grep. Example: {name:'authenticate', kind:'method'} finds the method without reading any file.",
+            "description": "TOKEN SAVER: Find symbols by name/kind/file — returns file + exact line numbers. Use INSTEAD of grep.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -160,7 +178,7 @@ fn tools_list() -> Value {
         },
         {
             "name": "get_symbol",
-            "description": "Full metadata for one symbol: signature, file, exact lines, visibility, docstring. Use this to get the precise location before a targeted Read(offset, limit) — avoids reading whole files.",
+            "description": "Full metadata for one symbol: signature, file, exact lines, visibility, docstring.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -183,7 +201,7 @@ fn tools_list() -> Value {
         },
         {
             "name": "get_callees",
-            "description": "What does symbol X call? Returns outbound edges with file:line. Use to understand dependencies before deleting or moving a symbol.",
+            "description": "What does symbol X call? Returns outbound edges with file:line.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "symbol": { "type": "string" } },
@@ -192,13 +210,13 @@ fn tools_list() -> Value {
         },
         {
             "name": "graph_stats",
-            "description": "Global graph counts (files, symbols, relations) and per-language breakdown. Use first when exploring an unknown codebase to understand its size and structure.",
+            "description": "Global graph counts (files, symbols, relations) and per-language breakdown. Use first when exploring an unknown codebase.",
             "inputSchema": { "type": "object", "properties": {} }
         }
     ]})
 }
 
-fn tools_call(db_path: &PathBuf, params: &Value) -> Result<Value> {
+fn tools_call(db_path: &PathBuf, target: &Path, params: &Value) -> Result<Value> {
     let name = params.get("name").and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("tools/call: missing 'name'"))?;
     let args = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -207,7 +225,8 @@ fn tools_call(db_path: &PathBuf, params: &Value) -> Result<Value> {
         .with_context(|| format!("opening {}", db_path.display()))?;
 
     let payload = match name {
-        "get_surgical_context" => get_surgical_context(&conn, &args)?,
+        "get_surgical_context" => get_surgical_context(&conn, &args, target)?,
+        "patch_symbol"         => patch_symbol(&conn, &args, target)?,
         "query_graph"          => query_graph(&conn, &args)?,
         "get_symbol"           => get_symbol(&conn, &args)?,
         "get_callers"          => get_callers(&conn, &args)?,
@@ -222,10 +241,35 @@ fn tools_call(db_path: &PathBuf, params: &Value) -> Result<Value> {
     }))
 }
 
-// --- tool implementations -------------------------------------------------
+// --- helpers -----------------------------------------------------------------
+
+/// Read lines [start_line..=end_line] (1-indexed) from a file in the target tree.
+fn read_source(target: &Path, file: &str, start_line: i64, end_line: i64) -> Option<String> {
+    let path = target.join(file);
+    let content = std::fs::read_to_string(&path).ok()?;
+    let lines: Vec<&str> = content.lines().collect();
+    let s = ((start_line - 1) as usize).min(lines.len());
+    let e = (end_line as usize).min(lines.len());
+    if s >= e { return None; }
+    Some(lines[s..e].join("\n"))
+}
+
+/// Enrich a symbol JSON object with its `source` field read from disk.
+fn with_source(mut snippet: Value, target: &Path) -> Value {
+    let file  = snippet.get("file").and_then(|v| v.as_str()).map(String::from);
+    let start = snippet.get("start_line").and_then(|v| v.as_i64());
+    let end   = snippet.get("end_line").and_then(|v| v.as_i64());
+    if let (Some(f), Some(s), Some(e)) = (file, start, end) {
+        if let Some(src) = read_source(target, &f, s, e) {
+            snippet.as_object_mut().unwrap().insert("source".into(), json!(src));
+        }
+    }
+    snippet
+}
+
+// --- tool implementations ----------------------------------------------------
 
 fn resolve_symbol(conn: &Connection, sym: &str) -> Result<i64> {
-    // Accepts either "qualified::name" or "path/to/file.rs:LINE".
     if let Some((file, line)) = sym.rsplit_once(':') {
         if let Ok(line_num) = line.parse::<i64>() {
             if let Ok(id) = conn.query_row(
@@ -263,7 +307,7 @@ fn symbol_snippet(conn: &Connection, sym_id: i64) -> Result<Value> {
     ).map_err(Into::into)
 }
 
-fn get_surgical_context(conn: &Connection, args: &Value) -> Result<Value> {
+fn get_surgical_context(conn: &Connection, args: &Value, target: &Path) -> Result<Value> {
     let symbol = args.get("symbol").and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("'symbol' required"))?;
     let depth = args.get("depth").and_then(|v| v.as_i64()).unwrap_or(1).clamp(1, 5);
@@ -271,7 +315,6 @@ fn get_surgical_context(conn: &Connection, args: &Value) -> Result<Value> {
 
     let root_id = resolve_symbol(conn, symbol)?;
 
-    // BFS both up (callers) and down (callees) up to depth
     let mut seen: std::collections::BTreeSet<i64> = [root_id].into_iter().collect();
     let mut frontier = vec![root_id];
     let mut out_ids: Vec<i64> = vec![root_id];
@@ -279,14 +322,12 @@ fn get_surgical_context(conn: &Connection, args: &Value) -> Result<Value> {
     for _ in 0..depth {
         let mut next = Vec::new();
         for id in &frontier {
-            // callees
             let mut stmt = conn.prepare(
                 "SELECT target_symbol_id FROM relations
                  WHERE source_symbol_id = ?1 AND target_symbol_id IS NOT NULL")?;
             for row in stmt.query_map(params![id], |r| r.get::<_,i64>(0))? {
                 if let Ok(t) = row { if seen.insert(t) { next.push(t); out_ids.push(t); } }
             }
-            // callers
             let mut stmt = conn.prepare(
                 "SELECT source_symbol_id FROM relations WHERE target_symbol_id = ?1")?;
             for row in stmt.query_map(params![id], |r| r.get::<_,i64>(0))? {
@@ -299,16 +340,62 @@ fn get_surgical_context(conn: &Connection, args: &Value) -> Result<Value> {
     }
     out_ids.truncate(max as usize);
 
+    let root = with_source(symbol_snippet(conn, root_id)?, target);
     let snippets: Vec<Value> = out_ids.iter()
         .filter_map(|id| symbol_snippet(conn, *id).ok())
+        .map(|s| with_source(s, target))
         .collect();
 
     Ok(json!({
-        "root":   symbol_snippet(conn, root_id)?,
-        "depth":  depth,
-        "count":  snippets.len(),
+        "root":     root,
+        "depth":    depth,
+        "count":    snippets.len(),
         "snippets": snippets,
-        "hint": "Open each snippet at file:start_line to see exact code."
+    }))
+}
+
+fn patch_symbol(conn: &Connection, args: &Value, target: &Path) -> Result<Value> {
+    let symbol     = args.get("symbol").and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("'symbol' required"))?;
+    let new_source = args.get("new_source").and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("'new_source' required"))?;
+
+    let id      = resolve_symbol(conn, symbol)?;
+    let snippet = symbol_snippet(conn, id)?;
+
+    let file       = snippet.get("file").and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("symbol has no file"))?;
+    let start_line = snippet.get("start_line").and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow!("symbol has no start_line"))? as usize;
+    let end_line   = snippet.get("end_line").and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow!("symbol has no end_line"))? as usize;
+
+    let full_path = target.join(file);
+    let content   = std::fs::read_to_string(&full_path)
+        .with_context(|| format!("reading {}", full_path.display()))?;
+    let trailing_newline = content.ends_with('\n');
+
+    let lines: Vec<&str> = content.lines().collect();
+    let before = &lines[..start_line.saturating_sub(1)];
+    let after  = if end_line < lines.len() { &lines[end_line..] } else { &[] };
+
+    let mut parts: Vec<&str> = Vec::with_capacity(before.len() + 1 + after.len());
+    parts.extend_from_slice(before);
+    parts.push(new_source);
+    parts.extend_from_slice(after);
+
+    let mut new_content = parts.join("\n");
+    if trailing_newline { new_content.push('\n'); }
+
+    std::fs::write(&full_path, &new_content)
+        .with_context(|| format!("writing {}", full_path.display()))?;
+
+    Ok(json!({
+        "patched":       true,
+        "symbol":        snippet.get("qualified").cloned().unwrap_or(json!(symbol)),
+        "file":          file,
+        "lines_replaced": format!("{}-{}", start_line, end_line),
+        "note":          "File written. The daemon reindexes automatically on the next watcher tick."
     }))
 }
 
@@ -393,8 +480,8 @@ fn get_callees(conn: &Connection, args: &Value) -> Result<Value> {
 }
 
 fn graph_stats(conn: &Connection) -> Result<Value> {
-    let files: i64     = conn.query_row("SELECT COUNT(*) FROM files",     [], |r| r.get(0))?;
-    let symbols: i64   = conn.query_row("SELECT COUNT(*) FROM symbols",   [], |r| r.get(0))?;
+    let files: i64     = conn.query_row("SELECT COUNT(*) FROM files",    [], |r| r.get(0))?;
+    let symbols: i64   = conn.query_row("SELECT COUNT(*) FROM symbols",  [], |r| r.get(0))?;
     let relations: i64 = conn.query_row("SELECT COUNT(*) FROM relations",[], |r| r.get(0))?;
     let mut stmt = conn.prepare(
         "SELECT language, COUNT(*) FROM files GROUP BY language ORDER BY 2 DESC")?;
