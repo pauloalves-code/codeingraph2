@@ -33,8 +33,15 @@ pub fn run_blocking(cfg: Config, pool: Pool) -> Result<()> {
         match rx.recv_timeout(tick) {
             Ok(Ok(ev)) => {
                 if interesting(&ev) {
-                    for p in ev.paths { pending.insert(p); }
-                    deadline = Some(Instant::now() + debounce);
+                    let before = pending.len();
+                    for p in ev.paths {
+                        if !is_daemon_generated(&cfg, &p) {
+                            pending.insert(p);
+                        }
+                    }
+                    if pending.len() > before {
+                        deadline = Some(Instant::now() + debounce);
+                    }
                 }
             }
             Ok(Err(e)) => tracing::warn!(?e, "watcher error"),
@@ -64,4 +71,10 @@ fn interesting(ev: &Event) -> bool {
         ev.kind,
         EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
     )
+}
+
+/// Returns true for files written by the daemon itself into the target tree.
+/// These must never feed back into the watcher or they cause an infinite loop.
+fn is_daemon_generated(cfg: &Config, path: &std::path::Path) -> bool {
+    path == cfg.target.join("CLAUDE.md")
 }

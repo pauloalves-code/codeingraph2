@@ -25,15 +25,62 @@
   header h1 .proj { color: var(--muted); font-weight: 400; margin-left: 6px; }
   header .stats { color: var(--muted); font-size: 12px; white-space: nowrap; }
   header .grow  { flex: 1; }
-  header input[type=search] {
-    width: 260px; padding: 6px 10px; background: var(--panel2);
-    border: 1px solid var(--border); color: var(--fg); border-radius: 6px; font-size: 13px; }
-  header select {
-    padding: 6px 8px; background: var(--panel2); border: 1px solid var(--border);
-    color: var(--fg); border-radius: 6px; font-size: 12px; }
   header button {
     padding: 6px 12px; background: var(--accent); color: #fff;
     border: none; border-radius: 6px; font-size: 12px; cursor: pointer; }
+
+  /* ── Search wrap ─────────────────────────────────────────────────────────── */
+  #search-wrap { position: relative; display: inline-block; }
+  #q {
+    width: 240px; padding: 6px 10px; background: var(--panel2);
+    border: 1px solid var(--border); color: var(--fg); border-radius: 6px;
+    font-size: 13px; display: block; }
+  #q:focus { outline: none; border-color: var(--accent); }
+  #q-drop {
+    display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 300;
+    background: var(--panel2); border: 1px solid var(--border); border-top: none;
+    border-radius: 0 0 6px 6px; max-height: 280px; overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,.55); }
+  #q-drop.open { display: block; }
+  .q-item {
+    padding: 7px 10px; cursor: pointer; font-size: 12px;
+    border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .q-item:last-child { border-bottom: none; }
+  .q-item:hover { background: rgba(124,108,255,.14); }
+  .q-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .q-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .q-kind {
+    color: var(--muted); font-size: 10px; flex-shrink: 0;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 3px; padding: 1px 5px; }
+
+  /* ── Kind highlight picker ───────────────────────────────────────────────── */
+  #kind-wrap { position: relative; display: flex; align-items: center; gap: 4px; }
+  #kind-btn {
+    padding: 6px 10px; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 6px; font-size: 12px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; min-width: 136px; }
+  #kind-btn:hover { border-color: var(--accent); }
+  #kind-btn .kb-label { flex: 1; text-align: left; }
+  #kind-btn .kb-badge {
+    background: var(--accent); color: #fff; border-radius: 999px;
+    padding: 1px 6px; font-size: 10px; font-weight: 700; display: none; }
+  #kind-clear {
+    padding: 5px 7px; background: transparent; border: 1px solid var(--border);
+    color: var(--muted); border-radius: 6px; font-size: 12px; cursor: pointer; }
+  #kind-clear:hover { color: var(--fg); border-color: var(--fg); }
+  #kind-drop {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 300;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 0; min-width: 180px; box-shadow: 0 8px 24px rgba(0,0,0,.55); }
+  #kind-drop.open { display: block; }
+  .kind-opt {
+    display: flex; align-items: center; gap: 8px; padding: 7px 14px;
+    cursor: pointer; font-size: 12px; color: var(--fg); user-select: none; }
+  .kind-opt:hover { background: rgba(124,108,255,.1); }
+  .kind-opt input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px;
+    flex-shrink: 0; cursor: pointer; }
+  .kind-opt .ko-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
   /* ── Layout ─────────────────────────────────────────────────────────────── */
   main { display: flex; height: calc(100% - 48px); }
@@ -106,10 +153,12 @@
   /* ── Legend ──────────────────────────────────────────────────────────────── */
   .legend {
     position: absolute; bottom: 12px; left: 12px; z-index: 5;
-    background: rgba(23,26,33,.9); border: 1px solid var(--border);
-    border-radius: 6px; padding: 8px 10px; font-size: 11px; color: var(--muted); }
-  .legend .sw { display: inline-block; width: 10px; height: 10px;
-    border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    background: rgba(23,26,33,.92); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 12px; font-size: 11px; color: var(--muted); }
+  .legend .lrow { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+  .legend .lrow:last-child { margin-bottom: 0; }
+  .legend .sw { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .legend .lsep { border-top: 1px solid var(--border); margin: 6px 0; }
 
   /* ── Settings panel ──────────────────────────────────────────────────────── */
   #settings {
@@ -140,18 +189,22 @@
     line-height: 1.4; padding-left: 2px; }
 
   /* ── SVG graph ───────────────────────────────────────────────────────────── */
-  .link { stroke-opacity: 0.5; stroke-width: 1px; }
-  .link.hl   { stroke: #7c6cff !important; stroke-opacity: 1; stroke-width: 1.8px; }
+  /* [2] Single edge color, thickness encodes relation kind */
+  .link { stroke: #4d5870; stroke-opacity: 0.45; }
+  .link.hl   { stroke: #7c6cff !important; stroke-opacity: 1 !important; }
   .link.dim  { stroke-opacity: 0.04; }
+  .link.kdim { stroke-opacity: 0.04; }
   .node { cursor: pointer; stroke: #0f1115; stroke-width: 1.5px; }
   .node:hover { stroke: #fff; stroke-width: 2px; }
   .node.sel  { stroke: #fff; stroke-width: 2.5px; }
-  .node.dim  { opacity: 0.12; }
+  .node.dim  { opacity: 0.10; }
+  .node.kdim { opacity: 0.07; }
   .node.expanded { stroke: #7c6cff; stroke-width: 2px; stroke-dasharray: 3,2; }
   .label { fill: #9ba3b4; font-size: 10px; pointer-events: none;
     text-anchor: middle; dominant-baseline: hanging; }
-  .label.dim { opacity: 0.08; }
-  .label.hl  { fill: #e5e7eb; }
+  .label.dim  { opacity: 0.06; }
+  .label.kdim { opacity: 0.05; }
+  .label.hl   { fill: #e5e7eb; }
 </style>
 </head>
 <body>
@@ -159,19 +212,21 @@
   <h1>codeingraph2<span class="proj" id="proj-name"></span></h1>
   <span class="stats" id="stats">—</span>
   <span class="grow"></span>
-  <input type="search" id="q" placeholder="Buscar nome / qualificador...">
-  <select id="kind">
-    <option value="">Todos os tipos</option>
-    <option value="file">Arquivos</option>
-    <option value="class">Classes</option>
-    <option value="function">Funções</option>
-    <option value="method">Métodos</option>
-    <option value="variable">Variáveis</option>
-    <option value="constant">Constantes</option>
-    <option value="trait">Traits</option>
-    <option value="enum">Enums</option>
-    <option value="module">Módulos</option>
-  </select>
+  <!-- [4] Search-as-locator dropdown -->
+  <div id="search-wrap">
+    <input type="search" id="q" placeholder="Localizar símbolo…" autocomplete="off" spellcheck="false">
+    <div id="q-drop"></div>
+  </div>
+  <!-- [3] Multi-select kind highlight -->
+  <div id="kind-wrap">
+    <button id="kind-btn" title="Destacar tipos de símbolo no grafo">
+      <span class="kb-label">Destacar tipos</span>
+      <span class="kb-badge" id="kind-badge"></span>
+      <span style="color:var(--muted);font-size:10px">▾</span>
+    </button>
+    <div id="kind-drop"></div>
+    <button id="kind-clear" title="Remover todos os destaques">✕</button>
+  </div>
   <button id="reload">Recarregar</button>
 </header>
 
@@ -179,7 +234,8 @@
   <div id="graph-wrap">
     <svg id="graph"></svg>
 
-    <div id="settings">
+    <!-- [5] Settings collapsed by default -->
+    <div id="settings" class="collapsed">
       <div class="s-hdr" id="settings-hdr">
         <span class="caret">▾</span>
         <span>Configurações</span>
@@ -196,8 +252,7 @@
           <input type="checkbox" id="expand-conn">
         </div>
         <div class="expand-note">
-          Quando ativo, clicar num nó traz todos os seus vizinhos para o grafo,
-          mesmo que estejam fora do filtro atual.
+          Quando ativo, clicar num nó traz todos os seus vizinhos para o grafo.
         </div>
         <div class="sep"></div>
         <div class="toggle">
@@ -210,29 +265,46 @@
         </div>
         <div class="sep"></div>
         <div class="row">
-          <label>Força centrípeta <span class="val" id="v-center">0.05</span></label>
-          <input type="range" id="f-center" min="0" max="0.3" step="0.005" value="0.05">
+          <label>Força centrípeta <span class="val" id="v-center">0.020</span></label>
+          <input type="range" id="f-center" min="0" max="0.3" step="0.005" value="0.02">
         </div>
         <div class="row">
-          <label>Repulsão <span class="val" id="v-repel">500</span></label>
-          <input type="range" id="f-repel" min="10" max="3000" step="10" value="500">
+          <label>Repulsão <span class="val" id="v-repel">900</span></label>
+          <input type="range" id="f-repel" min="10" max="3000" step="10" value="900">
         </div>
         <div class="row">
-          <label>Força dos links <span class="val" id="v-lstr">1.00</span></label>
-          <input type="range" id="f-lstr" min="0" max="3" step="0.05" value="1">
+          <label>Força dos links <span class="val" id="v-lstr">0.60</span></label>
+          <input type="range" id="f-lstr" min="0" max="3" step="0.05" value="0.6">
         </div>
         <div class="row">
-          <label>Distância dos links <span class="val" id="v-ldist">80</span></label>
-          <input type="range" id="f-ldist" min="10" max="500" step="5" value="80">
+          <label>Distância dos links <span class="val" id="v-ldist">130</span></label>
+          <input type="range" id="f-ldist" min="10" max="500" step="5" value="130">
         </div>
       </div>
     </div>
 
     <div class="legend">
-      <div><span class="sw" style="background:#999"></span> Arquivos / Módulos</div>
-      <div><span class="sw" style="background:#ff4d4d"></span> Classes / Traits / Enums</div>
-      <div><span class="sw" style="background:#4d94ff"></span> Funções / Métodos</div>
-      <div><span class="sw" style="background:#ffdb4d"></span> Variáveis / Constantes</div>
+      <div class="lrow"><span class="sw" style="background:#999"></span> Arquivos / Módulos</div>
+      <div class="lrow"><span class="sw" style="background:#ff4d4d"></span> Classes / Traits / Enums</div>
+      <div class="lrow"><span class="sw" style="background:#4d94ff"></span> Funções / Métodos</div>
+      <div class="lrow"><span class="sw" style="background:#ffdb4d"></span> Variáveis / Constantes</div>
+      <div class="lsep"></div>
+      <div class="lrow">
+        <svg width="28" height="6"><line x1="0" y1="3" x2="28" y2="3" stroke="#4d5870" stroke-width="3.5"/></svg>
+        herda / implementa
+      </div>
+      <div class="lrow">
+        <svg width="28" height="6"><line x1="0" y1="3" x2="28" y2="3" stroke="#4d5870" stroke-width="2"/></svg>
+        chama / usa tipo
+      </div>
+      <div class="lrow">
+        <svg width="28" height="6"><line x1="0" y1="3" x2="28" y2="3" stroke="#4d5870" stroke-width="1"/></svg>
+        importa / referencia
+      </div>
+      <div class="lrow">
+        <svg width="28" height="6"><line x1="0" y1="3" x2="28" y2="3" stroke="#4d5870" stroke-width="0.7"/></svg>
+        contém
+      </div>
     </div>
   </div>
 
@@ -249,6 +321,12 @@ const COLOR = {
   function: '#4d94ff', method: '#4d94ff',
   variable: '#ffdb4d', constant: '#ffdb4d',
 };
+// [2] Edge thickness by relation kind — single color, varying width
+const REL_WIDTH = {
+  inherits: 3.5, implements: 3.0, calls: 2.0, uses_type: 1.8,
+  assigns: 1.4, imports: 1.2, references: 1.0, reads: 1.0, contains: 0.7,
+};
+// Colors used only in the info panel badges (not on graph edges)
 const REL_COLOR = {
   calls: '#6ea8ff', imports: '#c8cdd6', inherits: '#ff6b6b',
   contains: '#8b93a3', references: '#ffd966', implements: '#ff9bb8',
@@ -267,12 +345,26 @@ const LANG_EXT = {
   ts:'typescript', tsx:'tsx',
 };
 
-// ── Physics ──────────────────────────────────────────────────────────────────
-const PHYS_DEF = { center: 0.05, repel: 500, lstr: 1, ldist: 80 };
+// [3] Kind highlight definitions
+const KINDS = [
+  { key: 'file',     label: 'Arquivos',   color: '#999999' },
+  { key: 'class',    label: 'Classes',    color: '#ff4d4d' },
+  { key: 'function', label: 'Funções',    color: '#4d94ff' },
+  { key: 'method',   label: 'Métodos',    color: '#4d94ff' },
+  { key: 'variable', label: 'Variáveis',  color: '#ffdb4d' },
+  { key: 'constant', label: 'Constantes', color: '#ffdb4d' },
+  { key: 'trait',    label: 'Traits',     color: '#ff4d4d' },
+  { key: 'enum',     label: 'Enums',      color: '#ff4d4d' },
+  { key: 'module',   label: 'Módulos',    color: '#999999' },
+];
+
+// [5] Better defaults — more repulsion, longer distances, weaker center
+const PHYS_DEF = { center: 0.02, repel: 900, lstr: 0.6, ldist: 130 };
 const phys = { ...PHYS_DEF };
 const LDIST_MULT = {
-  contains: 0.35, inherits: 0.5, implements: 0.5,
-  calls: 1.0, references: 1.1, assigns: 0.8, reads: 0.9, imports: 1.6,
+  contains: 0.3, inherits: 0.5, implements: 0.5,
+  calls: 1.0, references: 1.1, assigns: 0.8, reads: 0.9,
+  imports: 1.5, uses_type: 0.9,
 };
 function ldistFn(d) { return phys.ldist * (LDIST_MULT[d.kind] || 1); }
 
@@ -291,45 +383,92 @@ function sizeFor(fan)   { return Math.min(22, 5 + Math.sqrt(fan || 0) * 1.6); }
 function esc(s)         { return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function kindPT(k)      { return KIND_PT[k] || k; }
 function langOf(p)      { return LANG_EXT[(p||'').split('.').pop()] || 'clike'; }
+function edgeWidth(d)   { return (REL_WIDTH[d.kind] || 1) + 'px'; }
 
 // ── D3 setup ─────────────────────────────────────────────────────────────────
-const svg       = d3.select('#graph');
-const svgEl     = svg.node();
-const zoom      = svg.append('g').attr('class', 'zoom');
-const linkG     = zoom.append('g');
-const nodeG     = zoom.append('g');
-const labelG    = zoom.append('g');
+const svg    = d3.select('#graph');
+const svgEl  = svg.node();
+const zoom   = svg.append('g').attr('class', 'zoom');
+const linkG  = zoom.append('g');
+const nodeG  = zoom.append('g');
+const labelG = zoom.append('g');
 
-const zoomB = d3.zoom().scaleExtent([0.05, 10])
-  .on('zoom', ev => zoom.attr('transform', ev.transform));
+let userHasZoomed = false;
+const zoomB = d3.zoom().scaleExtent([0.03, 12])
+  .on('zoom', ev => {
+    zoom.attr('transform', ev.transform);
+    if (ev.sourceEvent) userHasZoomed = true;
+  });
 svg.call(zoomB);
 svg.on('click', ev => { if (ev.target === svgEl) clearHL(); });
 
+// [5] Improved simulation parameters
 const sim = d3.forceSimulation()
   .force('link',    d3.forceLink().id(d => d.id).distance(ldistFn).strength(phys.lstr))
   .force('charge',  d3.forceManyBody().strength(-phys.repel))
   .force('x',       d3.forceX(0).strength(phys.center))
   .force('y',       d3.forceY(0).strength(phys.center))
   .force('center',  d3.forceCenter(0, 0))
-  .force('collide', d3.forceCollide().radius(d => sizeFor(d.fan) + 2))
-  .alphaDecay(0.02).velocityDecay(0.5);
+  .force('collide', d3.forceCollide().radius(d => sizeFor(d.fan) + 4))
+  .alphaDecay(0.015).velocityDecay(0.35);
 
+// ── State ─────────────────────────────────────────────────────────────────────
+let allNodes = [];    // all nodes for search dropdown
 let nodes = [], links = [];
-let expandedIds = new Set();
+let expandedIds    = new Set();
+let highlightedKinds = new Set();  // [3]
 let linkSel  = linkG.selectAll('line');
 let nodeSel  = nodeG.selectAll('circle');
 let labelSel = labelG.selectAll('text');
-let selId      = null;
-let showLbls   = true;
-let expandMode = false;
-let hideOrphans = false;
-let onlyOrphans = false;
+let selId    = null;
+let showLbls = true, expandMode = false, hideOrphans = false, onlyOrphans = false;
+let fitDone  = false, fitTimer = null;
 
+// ── [1] Zoom-to-fit ───────────────────────────────────────────────────────────
 function centerVP() {
   const { width, height } = svgEl.getBoundingClientRect();
   svg.call(zoomB.transform, d3.zoomIdentity.translate(width / 2, height / 2));
 }
 
+function zoomToFit(padding = 60) {
+  if (!nodes.length) return;
+  const validNodes = nodes.filter(n => n.x != null && n.y != null && isFinite(n.x) && isFinite(n.y));
+  if (!validNodes.length) return;
+  const xs = validNodes.map(n => n.x);
+  const ys = validNodes.map(n => n.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const { width, height } = svgEl.getBoundingClientRect();
+  const w = (x1 - x0) || 1, h = (y1 - y0) || 1;
+  const scale = Math.min((width - padding * 2) / w, (height - padding * 2) / h, 3);
+  const tx = width / 2 - scale * ((x0 + x1) / 2);
+  const ty = height / 2 - scale * ((y0 + y1) / 2);
+  svg.transition().duration(700)
+    .call(zoomB.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+}
+
+function zoomToNode(d) {
+  const { width, height } = svgEl.getBoundingClientRect();
+  const scale = 1.8;
+  svg.transition().duration(500)
+    .call(zoomB.transform, d3.zoomIdentity
+      .translate(width / 2 - scale * (d.x || 0), height / 2 - scale * (d.y || 0))
+      .scale(scale));
+}
+
+function scheduleZoomFit() {
+  clearTimeout(fitTimer);
+  fitDone = false;
+  fitTimer = setTimeout(() => {
+    if (!fitDone && !userHasZoomed) { fitDone = true; zoomToFit(); }
+  }, 2400);
+}
+
+sim.on('end', () => {
+  if (!fitDone && !userHasZoomed) { fitDone = true; zoomToFit(); }
+});
+
+// ── Physics ───────────────────────────────────────────────────────────────────
 function applyPhys() {
   sim.force('link').distance(ldistFn).strength(phys.lstr);
   sim.force('charge').strength(-phys.repel);
@@ -352,12 +491,42 @@ function dragB() {
     .on('end',   (ev, d) => { if (!ev.active) sim.alphaTarget(0); d.fx = null; d.fy = null; });
 }
 
+// ── [3] Kind highlight ────────────────────────────────────────────────────────
+function applyKindHighlight() {
+  if (highlightedKinds.size === 0) {
+    nodeSel.classed('kdim', false);
+    labelSel.classed('kdim', false);
+    linkSel.classed('kdim', false);
+    return;
+  }
+  nodeSel.classed('kdim',  d => !highlightedKinds.has(d.kind));
+  labelSel.classed('kdim', d => !highlightedKinds.has(d.kind));
+  linkSel.classed('kdim', l => {
+    const sk = (typeof l.source === 'object' ? l.source : null)?.kind;
+    const tk = (typeof l.target === 'object' ? l.target : null)?.kind;
+    return !highlightedKinds.has(sk) && !highlightedKinds.has(tk);
+  });
+}
+
+function updateKindUI() {
+  const badge = document.getElementById('kind-badge');
+  const n = highlightedKinds.size;
+  badge.textContent = n;
+  badge.style.display = n > 0 ? '' : 'none';
+  document.querySelectorAll('#kind-drop .kind-opt input').forEach(cb => {
+    cb.checked = highlightedKinds.has(cb.dataset.kind);
+  });
+  applyKindHighlight();
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
 function render(alpha = 1) {
   linkSel = linkG.selectAll('line').data(links, d => d.id).join(
     enter => enter.append('line').attr('class', 'link')
-      .on('click', (ev, d) => { ev.stopPropagation(); showEdge(d.numId); })
+      .on('click', (ev, d) => { ev.stopPropagation(); if (d.numId >= 0) showEdge(d.numId); })
   );
-  linkSel.style('stroke', d => REL_COLOR[d.kind] || '#8b93a3');
+  // [2] Thickness by kind, single color
+  linkSel.style('stroke-width', edgeWidth);
 
   nodeSel = nodeG.selectAll('circle').data(nodes, d => d.id).join(
     enter => enter.append('circle')
@@ -377,6 +546,43 @@ function render(alpha = 1) {
   sim.force('link').links(links);
   sim.alpha(alpha).restart();
   applyOrphanFilter();
+  applyKindHighlight();
+}
+
+// ── Graph load ────────────────────────────────────────────────────────────────
+async function loadGraph() {
+  const [stats, data] = await Promise.all([
+    fetchJSON('/api/stats'),
+    fetchJSON('/api/graph?limit=0'),
+  ]);
+
+  if (stats.project) {
+    document.getElementById('proj-name').textContent = ' / ' + stats.project;
+    document.title = `codeingraph2 — ${stats.project}`;
+  }
+  const unresolved = stats.relations - data.edges.length;
+  document.getElementById('stats').textContent =
+    `${stats.files} arqs · ${stats.symbols} síms · ${data.edges.length} relações` +
+    (unresolved > 0 ? ` (+${unresolved} sem alvo)` : '');
+
+  allNodes = data.nodes.map(n => ({
+    id: String(n.id), label: n.name, kind: n.kind, qname: n.qname,
+    file: n.file, start: n.start, end: n.end,
+    fan: (n.fan_in||0) + (n.fan_out||0),
+  }));
+  nodes = allNodes;
+  links = data.edges.map(e => ({
+    id: 'e' + e.id, numId: e.id,
+    source: String(e.source), target: String(e.target),
+    kind: e.kind, line: e.line,
+  }));
+
+  expandedIds.clear();
+  selId = null;
+  userHasZoomed = false;
+  centerVP();
+  scheduleZoomFit();  // [1]
+  render();
 }
 
 // ── Orphan filter ─────────────────────────────────────────────────────────────
@@ -410,11 +616,10 @@ function applyOrphanFilter() {
     if (onlyOrphans && !orphan) return 'none';
     return null;
   });
-  // When showing only orphans there are no edges to display
   linkSel.style('display', onlyOrphans ? 'none' : null);
 }
 
-// ── Highlight ────────────────────────────────────────────────────────────────
+// ── Highlight (click) ─────────────────────────────────────────────────────────
 function neighborsOf(id) {
   const keep = new Set([id]);
   for (const l of links) {
@@ -446,42 +651,36 @@ function clearHL() {
   nodeSel.classed('dim', false).classed('sel', false);
   labelSel.classed('dim', false).classed('hl', false);
   linkSel.classed('dim', false).classed('hl', false);
+  applyKindHighlight();
 }
 
 // ── Expand connections ───────────────────────────────────────────────────────
 const MAX_EXPAND = 40;
 
 async function doExpand(d, nd) {
-  const haveIds   = new Set(nodes.map(n => n.id));
-  const haveLIds  = new Set(links.map(l => l.id));
-  const toFetch   = new Map();
-
+  const haveIds  = new Set(nodes.map(n => n.id));
+  const haveLIds = new Set(links.map(l => l.id));
+  const toFetch  = new Map();
   for (const e of nd.outgoing)
-    if (e.target_id && !haveIds.has(String(e.target_id)))
-      toFetch.set(String(e.target_id), true);
+    if (e.target_id && !haveIds.has(String(e.target_id))) toFetch.set(String(e.target_id), true);
   for (const e of nd.incoming)
-    if (e.source_id && !haveIds.has(String(e.source_id)))
-      toFetch.set(String(e.source_id), true);
+    if (e.source_id && !haveIds.has(String(e.source_id))) toFetch.set(String(e.source_id), true);
 
   const newNodes = [];
   for (const cid of [...toFetch.keys()].slice(0, MAX_EXPAND)) {
     try {
-      const n   = await fetchJSON(`/api/node/${cid}`);
+      const n = await fetchJSON(`/api/node/${cid}`);
       const fan = n.incoming.length + n.outgoing.length;
-      const ang = Math.random() * 2 * Math.PI;
-      const dst = 80 + Math.random() * 80;
+      const ang = Math.random() * 2 * Math.PI, dst = 80 + Math.random() * 80;
       newNodes.push({
         id: cid, label: (n.qname||'').split(/[/:.>]/).pop() || n.qname,
         kind: n.kind, qname: n.qname, file: n.file,
         start: n.start_line, end: n.end_line, fan,
-        x: (d.x||0) + Math.cos(ang)*dst,
-        y: (d.y||0) + Math.sin(ang)*dst,
+        x: (d.x||0) + Math.cos(ang)*dst, y: (d.y||0) + Math.sin(ang)*dst,
       });
-      haveIds.add(cid);
-      expandedIds.add(cid);
+      haveIds.add(cid); expandedIds.add(cid);
     } catch {}
   }
-
   const newLinks = [];
   for (const e of nd.outgoing) {
     if (!e.target_id) continue;
@@ -499,56 +698,12 @@ async function doExpand(d, nd) {
       haveLIds.add(lid);
     }
   }
-
-  if (newNodes.length || newLinks.length) {
-    nodes.push(...newNodes);
-    links.push(...newLinks);
-    render(0.3);
-  }
+  if (newNodes.length || newLinks.length) { nodes.push(...newNodes); links.push(...newLinks); render(0.3); }
 }
 
-// ── Graph load ───────────────────────────────────────────────────────────────
-async function loadGraph() {
-  const q    = document.getElementById('q').value.trim();
-  const kind = document.getElementById('kind').value;
-  const p    = new URLSearchParams({ limit: '0' });
-  if (q)    p.set('q', q);
-  if (kind) p.set('kind', kind);
-
-  const [stats, data] = await Promise.all([
-    fetchJSON('/api/stats'),
-    fetchJSON('/api/graph?' + p),
-  ]);
-
-  if (stats.project) {
-    document.getElementById('proj-name').textContent = ' / ' + stats.project;
-    document.title = `codeingraph2 — ${stats.project}`;
-  }
-  const unresolved = stats.relations - data.edges.length;
-  document.getElementById('stats').textContent =
-    `${stats.files} arqs · ${stats.symbols} síms · ${data.edges.length} relações` +
-    (unresolved > 0 ? ` (+${unresolved} sem alvo)` : '');
-
-  nodes = data.nodes.map(n => ({
-    id: String(n.id), label: n.name, kind: n.kind, qname: n.qname,
-    file: n.file, start: n.start, end: n.end,
-    fan: (n.fan_in||0) + (n.fan_out||0),
-  }));
-  links = data.edges.map(e => ({
-    id: 'e' + e.id, numId: e.id,
-    source: String(e.source), target: String(e.target),
-    kind: e.kind, line: e.line,
-  }));
-
-  expandedIds.clear();
-  selId = null;
-  centerVP();
-  render();
-}
-
-// ── Panel helpers ────────────────────────────────────────────────────────────
+// ── Panel helpers ─────────────────────────────────────────────────────────────
 function section(title, badge, bodyHTML, startCollapsed = false) {
-  const b = badge != null ? `<span class="badge">${badge}</span>` : '';
+  const b  = badge != null ? `<span class="badge">${badge}</span>` : '';
   const hc = startCollapsed ? ' collapsed' : '';
   const bc = startCollapsed ? ' hidden' : '';
   return `<div class="p-section">
@@ -558,27 +713,22 @@ function section(title, badge, bodyHTML, startCollapsed = false) {
     <div class="p-body${bc}">${bodyHTML}</div>
   </div>`;
 }
-
 function toggleSec(hdr) {
   hdr.classList.toggle('collapsed');
   hdr.nextElementSibling.classList.toggle('hidden');
 }
 
-// ── Node panel ───────────────────────────────────────────────────────────────
-function showLoading(msg = 'Carregando…') {
-  document.getElementById('panel').innerHTML =
-    `<div class="placeholder"><span class="spinner"></span><br>${esc(msg)}</div>`;
+// ── Node panel ────────────────────────────────────────────────────────────────
+function showLoading() {
+  document.getElementById('panel').innerHTML = '<div class="placeholder">Carregando…</div>';
 }
 
 async function selectNode(d) {
-  selId = d.id;
-  showLoading();
+  selId = d.id; showLoading();
   let nd;
   try { nd = await fetchJSON(`/api/node/${d.id}`); }
   catch (err) { panelErr(`Erro ao carregar nó: ${err.message}`); return; }
-
   if (expandMode) await doExpand(d, nd);
-
   applyHL(d.id);
   renderNodePanel(d.id, nd);
 }
@@ -592,16 +742,14 @@ async function showNode(id) {
 }
 
 function renderNodePanel(id, n) {
-  const lang = langOf(n.file);
+  const lang  = langOf(n.file);
   const parts = [];
-
-  // — Informações básicas —
   const dot   = colorFor(n.kind);
   const chips = `
     <span class="chip"><span class="dot" style="background:${dot}"></span>${esc(kindPT(n.kind))}</span>
     <span class="chip">${esc(n.language || '?')}</span>
     ${n.visibility ? `<span class="chip">${esc(n.visibility)}</span>` : ''}`;
-  const basicHTML = `
+  parts.push(section('Informações básicas', null, `
     <p class="sym-name">${esc(n.qname)}</p>
     <div class="chips">${chips}</div>
     <dl class="kv">
@@ -609,38 +757,29 @@ function renderNodePanel(id, n) {
       <dt>Linhas</dt><dd>${n.start_line} – ${n.end_line}</dd>
       <dt>Dependências</dt><dd>${n.outgoing.length}</dd>
       <dt>Dependentes</dt><dd>${n.incoming.length}</dd>
-    </dl>`;
-  parts.push(section('Informações básicas', null, basicHTML, false));
+    </dl>`, false));
 
-  // — Assinatura —
   if (n.signature)
     parts.push(section('Assinatura', null, `<div class="sig-block">${esc(n.signature)}</div>`, false));
 
-  // — Código fonte —
   const src = n.source || '';
-  const codeHTML = src
-    ? `<pre><code class="language-${lang}">${esc(src)}</code></pre>`
-    : `<p style="color:var(--muted);font-size:12px;margin:0">Arquivo não acessível no target atual.</p>`;
-  parts.push(section('Código fonte', null, codeHTML, !src));
+  parts.push(section('Código fonte', null,
+    src ? `<pre><code class="language-${lang}">${esc(src)}</code></pre>`
+        : `<p style="color:var(--muted);font-size:12px;margin:0">Arquivo não acessível.</p>`,
+    !src));
 
-  // — Depende de (outgoing) —
   if (n.outgoing.length) {
     let li = '<ul class="rel-list">';
     for (const e of n.outgoing) {
-      const lbl   = e.target_qname || e.target_name || '(externo)';
-      const rc    = REL_COLOR[e.kind] || '#8b93a3';
-      const did   = e.target_id || '';
-      li += `<li data-id="${did}">
+      const lbl = e.target_qname || e.target_name || '(externo)';
+      const rc  = REL_COLOR[e.kind] || '#8b93a3';
+      li += `<li data-id="${e.target_id||''}">
         <span class="rel-badge" style="color:${rc};border-color:${rc}">${esc(kindPT(e.kind))}</span>
         <span class="rel-name">${esc(lbl)}</span>
-        <span class="rel-line">L${e.line}</span>
-      </li>`;
+        <span class="rel-line">L${e.line}</span></li>`;
     }
-    li += '</ul>';
-    parts.push(section('Depende de', n.outgoing.length, li, false));
+    parts.push(section('Depende de', n.outgoing.length, li + '</ul>', false));
   }
-
-  // — Dependentes (incoming) —
   if (n.incoming.length) {
     let li = '<ul class="rel-list">';
     for (const e of n.incoming) {
@@ -648,70 +787,139 @@ function renderNodePanel(id, n) {
       li += `<li data-id="${e.source_id}">
         <span class="rel-badge" style="color:${rc};border-color:${rc}">${esc(kindPT(e.kind))}</span>
         <span class="rel-name">${esc(e.source_qname)}</span>
-        <span class="rel-line">L${e.line}</span>
-      </li>`;
+        <span class="rel-line">L${e.line}</span></li>`;
     }
-    li += '</ul>';
-    // Collapse dependents automatically when there are many
-    parts.push(section('Dependentes', n.incoming.length, li, n.incoming.length > 15));
+    parts.push(section('Dependentes', n.incoming.length, li + '</ul>', n.incoming.length > 15));
   }
 
   const panel = document.getElementById('panel');
   panel.innerHTML = parts.join('');
-
   panel.querySelectorAll('.rel-list li[data-id]').forEach(li => {
     li.addEventListener('click', () => {
-      const id = li.dataset.id;
-      if (!id) return;
-      const t = nodes.find(n => n.id === String(id));
-      if (t) selectNode(t);
-      else   showNode(id);
+      const tid = li.dataset.id; if (!tid) return;
+      const t = nodes.find(n => n.id === String(tid));
+      if (t) selectNode(t); else showNode(tid);
     });
   });
-
   Prism.highlightAllUnder(panel);
 }
 
-// ── Edge panel ───────────────────────────────────────────────────────────────
+// ── Edge panel ────────────────────────────────────────────────────────────────
 async function showEdge(numId) {
   let e;
   try { e = await fetchJSON(`/api/edge/${numId}`); }
   catch (err) { panelErr(`Erro ao carregar relação: ${err.message}`); return; }
-
   const lang = langOf(e.source.file);
   const rc   = REL_COLOR[e.kind] || '#8b93a3';
-  const panel = document.getElementById('panel');
-
-  const infoHTML = `
-    <p class="sym-name" style="color:${rc}">${esc(kindPT(e.kind))}</p>
-    <dl class="kv">
-      <dt>De</dt><dd>${esc(e.source.qname)}</dd>
-      <dt>Para</dt><dd>${esc(e.target.qname || e.target.name || '(externo)')}</dd>
-      <dt>Arquivo</dt><dd>${esc(e.source.file)}</dd>
-      <dt>Linha</dt><dd>${e.line}</dd>
-    </dl>`;
-  const ctxHTML = e.context.source
-    ? `<pre><code class="language-${lang}">${esc(e.context.source)}</code></pre>`
-    : `<p style="color:var(--muted);font-size:12px;margin:0">Contexto não disponível.</p>`;
-
-  panel.innerHTML =
-    section('Relação', null, infoHTML, false) +
-    section('Contexto', null, ctxHTML, false);
-
-  Prism.highlightAllUnder(panel);
+  document.getElementById('panel').innerHTML =
+    section('Relação', null, `
+      <p class="sym-name" style="color:${rc}">${esc(kindPT(e.kind))}</p>
+      <dl class="kv">
+        <dt>De</dt><dd>${esc(e.source.qname)}</dd>
+        <dt>Para</dt><dd>${esc(e.target.qname || e.target.name || '(externo)')}</dd>
+        <dt>Arquivo</dt><dd>${esc(e.source.file)}</dd>
+        <dt>Linha</dt><dd>${e.line}</dd>
+      </dl>`, false) +
+    section('Contexto', null,
+      e.context.source
+        ? `<pre><code class="language-${lang}">${esc(e.context.source)}</code></pre>`
+        : `<p style="color:var(--muted);font-size:12px;margin:0">Contexto não disponível.</p>`,
+      false);
+  Prism.highlightAllUnder(document.getElementById('panel'));
 }
 
 function panelErr(msg) {
   document.getElementById('panel').innerHTML = `<div class="err-msg">⚠ ${esc(msg)}</div>`;
 }
 
-// ── Settings bindings ────────────────────────────────────────────────────────
+// ── [4] Search dropdown ───────────────────────────────────────────────────────
+const qInput = document.getElementById('q');
+const qDrop  = document.getElementById('q-drop');
+
+qInput.addEventListener('input', () => {
+  const val = qInput.value.trim().toLowerCase();
+  if (!val || !allNodes.length) { qDrop.classList.remove('open'); return; }
+  const results = allNodes.filter(n =>
+    n.label.toLowerCase().includes(val) || (n.qname||'').toLowerCase().includes(val)
+  ).slice(0, 12);
+  if (!results.length) { qDrop.classList.remove('open'); return; }
+  qDrop.innerHTML = results.map(n =>
+    `<div class="q-item" data-id="${n.id}">
+       <span class="q-dot" style="background:${colorFor(n.kind)}"></span>
+       <span class="q-name">${esc(n.label)}</span>
+       <span class="q-kind">${kindPT(n.kind)}</span>
+     </div>`
+  ).join('');
+  qDrop.classList.add('open');
+  qDrop.querySelectorAll('.q-item').forEach(item => {
+    item.addEventListener('mousedown', ev => {
+      ev.preventDefault();
+      qDrop.classList.remove('open');
+      qInput.value = '';
+      focusNode(item.dataset.id);
+    });
+  });
+});
+qInput.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape') { qDrop.classList.remove('open'); qInput.blur(); }
+});
+qInput.addEventListener('blur', () => setTimeout(() => qDrop.classList.remove('open'), 150));
+document.addEventListener('click', ev => {
+  if (!ev.target.closest('#search-wrap')) qDrop.classList.remove('open');
+});
+
+function focusNode(id) {
+  const nd = nodes.find(n => n.id === String(id));
+  if (!nd) return;
+  userHasZoomed = true;
+  zoomToNode(nd);
+  selectNode(nd);
+}
+
+// ── [3] Kind highlight dropdown ───────────────────────────────────────────────
+(function () {
+  const btn  = document.getElementById('kind-btn');
+  const drop = document.getElementById('kind-drop');
+  const clr  = document.getElementById('kind-clear');
+
+  drop.innerHTML = KINDS.map(k =>
+    `<div class="kind-opt">
+       <input type="checkbox" data-kind="${k.key}" id="k-${k.key}">
+       <span class="ko-dot" style="background:${k.color}"></span>
+       <label for="k-${k.key}" style="cursor:pointer;flex:1">${k.label}</label>
+     </div>`
+  ).join('');
+
+  btn.addEventListener('click', ev => { ev.stopPropagation(); drop.classList.toggle('open'); });
+
+  drop.querySelectorAll('.kind-opt').forEach(opt => {
+    const cb  = opt.querySelector('input[type=checkbox]');
+    const key = cb.dataset.kind;
+    cb.addEventListener('change', () => {
+      if (cb.checked) highlightedKinds.add(key); else highlightedKinds.delete(key);
+      updateKindUI();
+    });
+    opt.addEventListener('click', ev => {
+      if (ev.target === cb || ev.target.tagName === 'LABEL') return;
+      cb.checked = !cb.checked; cb.dispatchEvent(new Event('change'));
+    });
+  });
+
+  clr.addEventListener('click', () => {
+    highlightedKinds.clear(); updateKindUI(); drop.classList.remove('open');
+  });
+  document.addEventListener('click', ev => {
+    if (!ev.target.closest('#kind-wrap')) drop.classList.remove('open');
+  });
+}());
+
+// ── Settings bindings ─────────────────────────────────────────────────────────
 function bindSlider(iid, vid, key, fmt = String) {
-  const inp = document.getElementById(iid);
-  const vel = document.getElementById(vid);
-  vel.textContent = fmt(phys[key]);
-  inp.value = phys[key];
-  inp.addEventListener('input', () => { phys[key] = parseFloat(inp.value); vel.textContent = fmt(phys[key]); applyPhys(); });
+  const inp = document.getElementById(iid), vel = document.getElementById(vid);
+  vel.textContent = fmt(phys[key]); inp.value = phys[key];
+  inp.addEventListener('input', () => {
+    phys[key] = parseFloat(inp.value); vel.textContent = fmt(phys[key]); applyPhys();
+  });
 }
 bindSlider('f-center', 'v-center', 'center', v => v.toFixed(3));
 bindSlider('f-repel',  'v-repel',  'repel',  v => String(Math.round(v)));
@@ -723,25 +931,18 @@ document.getElementById('settings-hdr').addEventListener('click', ev => {
   document.getElementById('settings').classList.toggle('collapsed');
 });
 document.getElementById('settings-reset').addEventListener('click', ev => {
-  ev.stopPropagation();
-  Object.assign(phys, PHYS_DEF);
-  ['center','repel','lstr','ldist'].forEach(k => {
-    document.getElementById('f-' + k).value = phys[k];
-  });
+  ev.stopPropagation(); Object.assign(phys, PHYS_DEF);
+  ['center','repel','lstr','ldist'].forEach(k => document.getElementById('f-' + k).value = phys[k]);
   document.getElementById('v-center').textContent = phys.center.toFixed(3);
   document.getElementById('v-repel').textContent  = String(phys.repel);
   document.getElementById('v-lstr').textContent   = phys.lstr.toFixed(2);
   document.getElementById('v-ldist').textContent  = String(phys.ldist);
   applyPhys();
 });
-
 document.getElementById('show-labels').addEventListener('change', ev => {
-  showLbls = ev.target.checked;
-  applyOrphanFilter(); // re-apply; labelSel display is set inside
+  showLbls = ev.target.checked; applyOrphanFilter();
 });
-document.getElementById('expand-conn').addEventListener('change', ev => {
-  expandMode = ev.target.checked;
-});
+document.getElementById('expand-conn').addEventListener('change', ev => { expandMode = ev.target.checked; });
 document.getElementById('hide-orphans').addEventListener('change', ev => {
   hideOrphans = ev.target.checked;
   if (hideOrphans) { onlyOrphans = false; document.getElementById('only-orphans').checked = false; }
@@ -752,10 +953,10 @@ document.getElementById('only-orphans').addEventListener('change', ev => {
   if (onlyOrphans) { hideOrphans = false; document.getElementById('hide-orphans').checked = false; }
   applyOrphanFilter();
 });
-document.getElementById('reload').addEventListener('click', loadGraph);
-document.getElementById('q').addEventListener('keydown', ev => { if (ev.key === 'Enter') loadGraph(); });
-document.getElementById('kind').addEventListener('change', loadGraph);
-window.addEventListener('resize', centerVP);
+document.getElementById('reload').addEventListener('click', () => {
+  userHasZoomed = false; loadGraph().catch(err => panelErr(err.message));
+});
+window.addEventListener('resize', () => { if (!userHasZoomed) zoomToFit(); });
 
 loadGraph().catch(err => panelErr(err.message));
 </script>
