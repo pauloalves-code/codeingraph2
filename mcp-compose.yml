@@ -1,0 +1,20 @@
+version: "3.9"
+
+# Persistent global MCP container for codeingraph2.
+# All projects share this single container via `docker exec`.
+#
+# Start once:  docker compose -f mcp-compose.yml up -d
+# Stop:        docker compose -f mcp-compose.yml down
+#
+# install_global.sh manages this automatically.
+
+services:
+  mcp:
+    container_name: codeingraph2_mcp
+    image: codeingraph2:latest
+    restart: unless-stopped
+    volumes:
+      - /docker:/docker
+    environment:
+      CODEINGRAPH2_REGISTRY: /docker/codeingraph2/registry.json
+    entrypoint: ["/bin/sleep", "infinity"]

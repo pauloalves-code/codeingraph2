@@ -8,7 +8,7 @@ version: "3.9"
 # Volumes:
 #   TARGET_CODE          -> /target_code       (código a indexar)
 #   OBSIDIAN_VAULT       -> /obsidian_vault     (vault Obsidian gerado)
-#   <INSTANCE_NAME>_db   -> /var/lib/codeingraph2 (sqlite graph.db, persistente)
+#   PROJECT_DATA_DIR     -> /var/lib/codeingraph2 (sqlite graph.db, bind-mount no host)
 
 services:
   codeingraph2:
@@ -24,7 +24,7 @@ services:
     volumes:
       - ${TARGET_CODE:-./target_code}:/target_code
       - ${OBSIDIAN_VAULT:-./obsidian_vault}:/obsidian_vault
-      - project_db:/var/lib/codeingraph2
+      - ${PROJECT_DATA_DIR:-./project_data}:/var/lib/codeingraph2
     ports:
       - "${WEB_PORT:-7890}:7890"
     environment:
@@ -47,6 +47,3 @@ services:
       retries: 3
       start_period: 15s
 
-volumes:
-  project_db:
-    name: ${INSTANCE_NAME:-codeingraph2}_db

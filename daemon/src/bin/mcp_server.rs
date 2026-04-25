@@ -8,6 +8,7 @@
 //!   * tools/call              — with the tool set below
 //!
 //! Tools:
+//!   * `list_projects`          list registered projects (when using global registry)
 //!   * `get_surgical_context`   surgical slices with full source — no Read needed
 //!   * `patch_symbol`           edit a symbol by name — no old_string needed
 //!   * `query_graph`            search by name / kind / file
@@ -16,6 +17,9 @@
 //!   * `get_callees`            what does symbol X call
 //!   * `graph_stats`            counts
 //!
+//! All tools accept an optional `"project"` parameter when a CODEINGRAPH2_REGISTRY
+//! env var points to a registry.json. Without it the first registered project is used.
+//!
 //! The server opens the SQLite DB in read-only mode; the daemon owns writes.
 //! patch_symbol writes directly to the target files — the daemon reindexes automatically.
 
@@ -23,20 +27,60 @@ use anyhow::{anyhow, Context, Result};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
-fn main() -> Result<()> {
-    // Tracing to stderr (stdout is the MCP transport).
-    tracing_subscriber::fmt().with_writer(std::io::stderr).with_target(false).init();
+// --- registry ----------------------------------------------------------------
 
-    let db_path: PathBuf = std::env::var("CODEINGRAPH2_DB")
+#[derive(Deserialize, Clone)]
+struct ProjectEntry {
+    target: PathBuf,
+    db: PathBuf,
+}
+
+#[derive(Deserialize)]
+struct Registry {
+    projects: HashMap<String, ProjectEntry>,
+}
+
+fn load_registry() -> Option<Registry> {
+    let path = std::env::var("CODEINGRAPH2_REGISTRY").ok()?;
+    let content = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn resolve_context(registry: Option<&Registry>, args: &Value) -> Result<(PathBuf, PathBuf)> {
+    if let Some(reg) = registry {
+        let project_name = args.get("project").and_then(|v| v.as_str())
+            .map(String::from)
+            .or_else(|| std::env::var("CODEINGRAPH2_PROJECT").ok());
+
+        let entry = if let Some(ref name) = project_name {
+            reg.projects.get(name)
+                .ok_or_else(|| anyhow!("project not found: {name}. Use list_projects to see available projects."))?
+        } else {
+            reg.projects.values().next()
+                .ok_or_else(|| anyhow!("registry is empty"))?
+        };
+        return Ok((entry.db.clone(), entry.target.clone()));
+    }
+
+    let db: PathBuf = std::env::var("CODEINGRAPH2_DB")
         .unwrap_or_else(|_| "/var/lib/codeingraph2/graph.db".into())
         .into();
-
     let target: PathBuf = std::env::var("CODEINGRAPH2_TARGET")
         .unwrap_or_else(|_| "/target_code".into())
         .into();
+    Ok((db, target))
+}
+
+// --- main --------------------------------------------------------------------
+
+fn main() -> Result<()> {
+    tracing_subscriber::fmt().with_writer(std::io::stderr).with_target(false).init();
+
+    let registry = load_registry();
 
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -55,7 +99,7 @@ fn main() -> Result<()> {
             }
         };
 
-        let resp = handle(&db_path, &target, &req);
+        let resp = handle(registry.as_ref(), &req);
         let resp_line = match resp {
             Ok(result) => ok_response(req.id.clone(), result),
             Err(e)     => error_response(req.id.clone(), -32000, &e.to_string()),
@@ -93,14 +137,14 @@ fn error_response(id: Value, code: i64, message: &str) -> String {
     serde_json::to_string(&Response { jsonrpc: "2.0", id, result: None, error: Some(ErrObj { code, message }) }).unwrap()
 }
 
-fn handle(db_path: &PathBuf, target: &Path, req: &Request) -> Result<Value> {
+fn handle(registry: Option<&Registry>, req: &Request) -> Result<Value> {
     if req.jsonrpc != "2.0" && !req.jsonrpc.is_empty() {
         return Err(anyhow!("unsupported jsonrpc version"));
     }
     match req.method.as_str() {
         "initialize"  => Ok(initialize()),
         "tools/list"  => Ok(tools_list()),
-        "tools/call"  => tools_call(db_path, target, &req.params),
+        "tools/call"  => tools_call(registry, &req.params),
         "notifications/initialized" | "notifications/cancelled" => Ok(Value::Null),
         other => Err(anyhow!("method not found: {other}")),
     }
@@ -116,6 +160,10 @@ fn initialize() -> Value {
         },
         "instructions": concat!(
             "# CodeInGraph2 — Token-efficient code navigation\n\n",
+            "## Multi-project support:\n",
+            "- Use `list_projects` to see available projects.\n",
+            "- Pass `\"project\": \"<name>\"` to any tool to target a specific project.\n",
+            "- Omit `project` to use the default (first registered) project.\n\n",
             "## Core workflow (zero extra Reads):\n",
             "1. `get_surgical_context` — returns file + exact lines + **full source** for every impacted snippet.\n",
             "2. `patch_symbol`         — edit a symbol by name. No Read, no old_string needed.\n\n",
@@ -133,8 +181,20 @@ fn initialize() -> Value {
     })
 }
 
+fn project_param() -> Value {
+    json!({
+        "type": "string",
+        "description": "Project name (from list_projects). Omit to use the default project."
+    })
+}
+
 fn tools_list() -> Value {
     json!({ "tools": [
+        {
+            "name": "list_projects",
+            "description": "List all projects registered in the global registry. Use to discover project names for the `project` parameter.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
         {
             "name": "get_surgical_context",
             "description": "TOKEN SAVER: Returns code snippets impacted by a symbol — each snippet includes its full `source` so no Read is needed afterward. Use before any refactor.",
@@ -146,7 +206,8 @@ fn tools_list() -> Value {
                         "description": "Qualified name (e.g. 'MyModule::my_fn'), plain name, or 'path/to/file.rs:42' for line-based lookup."
                     },
                     "depth":        { "type": "integer", "minimum": 1, "maximum": 5, "default": 1, "description": "1 = direct callers/callees only (fastest). 2 = transitive." },
-                    "max_snippets": { "type": "integer", "minimum": 1, "maximum": 200, "default": 30 }
+                    "max_snippets": { "type": "integer", "minimum": 1, "maximum": 200, "default": 30 },
+                    "project":      project_param()
                 },
                 "required": ["symbol"]
             }
@@ -158,7 +219,8 @@ fn tools_list() -> Value {
                 "type": "object",
                 "properties": {
                     "symbol":     { "type": "string", "description": "Qualified name or plain name of the symbol to replace." },
-                    "new_source": { "type": "string", "description": "Complete new source code for this symbol (replaces the current start_line..end_line block)." }
+                    "new_source": { "type": "string", "description": "Complete new source code for this symbol (replaces the current start_line..end_line block)." },
+                    "project":    project_param()
                 },
                 "required": ["symbol", "new_source"]
             }
@@ -169,10 +231,11 @@ fn tools_list() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "name":  { "type": "string", "description": "Substring match against symbol name and qualified name." },
-                    "kind":  { "type": "string", "enum": ["file","class","function","method","variable","constant","enum","trait","module"] },
-                    "file":  { "type": "string", "description": "File path prefix filter (e.g. 'src/web')." },
-                    "limit": { "type": "integer", "default": 50, "description": "Max results." }
+                    "name":    { "type": "string", "description": "Substring match against symbol name and qualified name." },
+                    "kind":    { "type": "string", "enum": ["file","class","function","method","variable","constant","enum","trait","module"] },
+                    "file":    { "type": "string", "description": "File path prefix filter (e.g. 'src/web')." },
+                    "limit":   { "type": "integer", "default": 50, "description": "Max results." },
+                    "project": project_param()
                 }
             }
         },
@@ -182,7 +245,8 @@ fn tools_list() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "symbol": { "type": "string", "description": "Qualified name or plain name." }
+                    "symbol":  { "type": "string", "description": "Qualified name or plain name." },
+                    "project": project_param()
                 },
                 "required": ["symbol"]
             }
@@ -193,8 +257,9 @@ fn tools_list() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "symbol": { "type": "string" },
-                    "depth":  { "type": "integer", "default": 2, "maximum": 5 }
+                    "symbol":  { "type": "string" },
+                    "depth":   { "type": "integer", "default": 2, "maximum": 5 },
+                    "project": project_param()
                 },
                 "required": ["symbol"]
             }
@@ -204,29 +269,42 @@ fn tools_list() -> Value {
             "description": "What does symbol X call? Returns outbound edges with file:line.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "symbol": { "type": "string" } },
+                "properties": {
+                    "symbol":  { "type": "string" },
+                    "project": project_param()
+                },
                 "required": ["symbol"]
             }
         },
         {
             "name": "graph_stats",
             "description": "Global graph counts (files, symbols, relations) and per-language breakdown. Use first when exploring an unknown codebase.",
-            "inputSchema": { "type": "object", "properties": {} }
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project": project_param()
+                }
+            }
         }
     ]})
 }
 
-fn tools_call(db_path: &PathBuf, target: &Path, params: &Value) -> Result<Value> {
+fn tools_call(registry: Option<&Registry>, params: &Value) -> Result<Value> {
     let name = params.get("name").and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("tools/call: missing 'name'"))?;
     let args = params.get("arguments").cloned().unwrap_or(json!({}));
 
-    let conn = codeingraph2::db::open_readonly(db_path)
+    if name == "list_projects" {
+        return list_projects(registry);
+    }
+
+    let (db_path, target) = resolve_context(registry, &args)?;
+    let conn = codeingraph2::db::open_readonly(&db_path)
         .with_context(|| format!("opening {}", db_path.display()))?;
 
     let payload = match name {
-        "get_surgical_context" => get_surgical_context(&conn, &args, target)?,
-        "patch_symbol"         => patch_symbol(&conn, &args, target)?,
+        "get_surgical_context" => get_surgical_context(&conn, &args, &target)?,
+        "patch_symbol"         => patch_symbol(&conn, &args, &target)?,
         "query_graph"          => query_graph(&conn, &args)?,
         "get_symbol"           => get_symbol(&conn, &args)?,
         "get_callers"          => get_callers(&conn, &args)?,
@@ -242,6 +320,25 @@ fn tools_call(db_path: &PathBuf, target: &Path, params: &Value) -> Result<Value>
 }
 
 // --- helpers -----------------------------------------------------------------
+
+fn list_projects(registry: Option<&Registry>) -> Result<Value> {
+    let projects: Vec<Value> = registry
+        .map(|reg| {
+            let mut list: Vec<(&String, &ProjectEntry)> = reg.projects.iter().collect();
+            list.sort_by_key(|(k, _)| k.as_str());
+            list.into_iter().map(|(name, entry)| json!({
+                "name":   name,
+                "target": entry.target.display().to_string(),
+                "db":     entry.db.display().to_string(),
+            })).collect()
+        })
+        .unwrap_or_default();
+    let payload = json!({ "count": projects.len(), "projects": projects });
+    Ok(json!({
+        "content": [{ "type": "text", "text": serde_json::to_string_pretty(&payload)? }],
+        "isError": false,
+    }))
+}
 
 /// Read lines [start_line..=end_line] (1-indexed) from a file in the target tree.
 fn read_source(target: &Path, file: &str, start_line: i64, end_line: i64) -> Option<String> {
@@ -391,11 +488,11 @@ fn patch_symbol(conn: &Connection, args: &Value, target: &Path) -> Result<Value>
         .with_context(|| format!("writing {}", full_path.display()))?;
 
     Ok(json!({
-        "patched":       true,
-        "symbol":        snippet.get("qualified").cloned().unwrap_or(json!(symbol)),
-        "file":          file,
+        "patched":        true,
+        "symbol":         snippet.get("qualified").cloned().unwrap_or(json!(symbol)),
+        "file":           file,
         "lines_replaced": format!("{}-{}", start_line, end_line),
-        "note":          "File written. The daemon reindexes automatically on the next watcher tick."
+        "note":           "File written. The daemon reindexes automatically on the next watcher tick."
     }))
 }
 

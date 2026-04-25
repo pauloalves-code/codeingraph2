@@ -4,12 +4,15 @@
 # ============================================================================
 # 1. Verifica Docker.
 # 2. Pergunta porta, usuário e senha da UI web (a menos que passados via flag).
-# 3. Escreve .env para o docker-compose consumir.
-# 4. Sobe o container com nome único (INSTANCE_NAME).
-# 5. Registra o servidor MCP no ~/.mcp.json e via `claude mcp add-json`.
+# 3. Cria diretório do projeto em $SCRIPT_DIR/$INSTANCE_NAME/.
+# 4. Escreve .env em $SCRIPT_DIR/$INSTANCE_NAME/.env.
+# 5. Sobe o container com nome único (INSTANCE_NAME).
+# 6. Atualiza registry.json em $SCRIPT_DIR/registry.json.
+# 7. Registra servidor MCP global "codeingraph2" em ~/.mcp.json e ~/.claude.json.
+#    (Uma única entrada global substitui entradas por projeto.)
 #
 # Suporte multi-projeto: use --name PROJETO para instalar mais de uma instância
-# sem conflitos de container ou volume. Cada instância fica em sua própria porta.
+# sem conflitos de container ou volume.
 # ============================================================================
 set -euo pipefail
 
@@ -30,11 +33,11 @@ Usage: $0 [options]
 
 Caminhos:
   --target PATH        Diretório de código a indexar (default: \$PWD/target_code)
-  --vault  PATH        Saída do vault Obsidian        (default: \$PWD/obsidian_vault)
+  --vault  PATH        Saída do vault Obsidian (default: \$SCRIPT_DIR/\$NAME/obsidian_vault)
 
 Instância:
   --name   NAME        Nome da instância (default: basename do --target)
-                       Usado para container_name, volume e entrada MCP.
+                       Arquivos do projeto ficam em: $SCRIPT_DIR/<NAME>/
                        Instale com nomes diferentes para múltiplos projetos.
 
 Web UI:
@@ -47,7 +50,7 @@ Web UI:
 Controle:
   --no-build           Pula docker compose build
   --no-start           Pula docker compose up
-  --uninstall          Remove entrada MCP e derruba container
+  --uninstall          Remove entrada do registry, MCP (se último projeto) e derruba container
   --non-interactive    Nunca faz prompt (usa defaults / flags)
   -h, --help           Esta ajuda
 
@@ -55,14 +58,14 @@ Exemplos:
   # Instalar para outro projeto na porta 3360
   $0 --target /docker/myproject --name myproject --port 3360
 
-  # Instalar para codeingraph2 na porta 3358
-  $0 --target /docker/codeingraph2 --name codeingraph2 --port 3358
+  # Instalar para epify na porta 3357
+  $0 --target /docker/epify --name epify --port 3357
 EOF
 }
 
 # ---------------------- defaults / args ----------------------
 TARGET_CODE="${CODEINGRAPH2_TARGET:-}"
-OBSIDIAN_VAULT="${CODEINGRAPH2_VAULT:-}"
+OBSIDIAN_VAULT_IN="${CODEINGRAPH2_VAULT:-}"
 INSTANCE_NAME="${CODEINGRAPH2_INSTANCE:-}"
 WEB_PORT="${WEB_PORT:-}"
 WEB_USER_IN="${WEB_USER:-}"
@@ -77,7 +80,7 @@ INTERACTIVE=1
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --target)      TARGET_CODE="$2"; shift 2 ;;
-        --vault)       OBSIDIAN_VAULT="$2"; shift 2 ;;
+        --vault)       OBSIDIAN_VAULT_IN="$2"; shift 2 ;;
         --name)        INSTANCE_NAME="$2"; shift 2 ;;
         --port)        WEB_PORT="$2"; shift 2 ;;
         --user)        WEB_USER_IN="$2"; shift 2 ;;
@@ -94,36 +97,57 @@ while [[ $# -gt 0 ]]; do
 done
 
 TARGET_CODE="${TARGET_CODE:-$SCRIPT_DIR/target_code}"
-OBSIDIAN_VAULT="${OBSIDIAN_VAULT:-$SCRIPT_DIR/obsidian_vault}"
+
 # Derive instance name from target directory basename if not given
 INSTANCE_NAME="${INSTANCE_NAME:-$(basename "$TARGET_CODE")}"
 # Sanitize: keep only alphanumeric + hyphen + underscore
 INSTANCE_NAME="$(echo "$INSTANCE_NAME" | tr -cs '[:alnum:]_-' '_' | sed 's/^_//;s/_$//')"
 INSTANCE_NAME="${INSTANCE_NAME:-codeingraph2}"
 
+# Project data directory: always inside SCRIPT_DIR/projects/<INSTANCE_NAME>/
+PROJECT_DATA_DIR="${SCRIPT_DIR}/projects/${INSTANCE_NAME}"
+
+# Vault defaults to <PROJECT_DATA_DIR>/obsidian_vault
+OBSIDIAN_VAULT="${OBSIDIAN_VAULT_IN:-${PROJECT_DATA_DIR}/obsidian_vault}"
+
 CONTAINER_NAME="${INSTANCE_NAME}_container"
-MCP_NAME="codeingraph2-${INSTANCE_NAME}"   # unique per instance, e.g. codeingraph2-myproject
-MCP_COMMAND="docker"
-MCP_ARGS="[\"exec\",\"-i\",\"${CONTAINER_NAME}\",\"/usr/local/bin/mcp_server\"]"
+
+REGISTRY_FILE="${SCRIPT_DIR}/registry.json"
 
 # ---------------------- uninstall path ----------------------
 if [[ $DO_UNINSTALL -eq 1 ]]; then
     log "Desinstalando instância '${INSTANCE_NAME}'..."
-    # Determine env file location for this instance (mirrors install logic)
-    _target_real="$(realpath "$TARGET_CODE" 2>/dev/null || echo "$TARGET_CODE")"
-    _script_real="$(realpath "$SCRIPT_DIR" 2>/dev/null || echo "$SCRIPT_DIR")"
-    if [[ "$_target_real" == "$_script_real" ]]; then
-        _uninstall_extra=""
-    else
-        _env="/opt/codeingraph2/${INSTANCE_NAME}.env"
-        _uninstall_extra="--env-file $_env --project-name codeingraph2-${INSTANCE_NAME}"
-    fi
+    ENV_FILE="${PROJECT_DATA_DIR}/.env"
+    COMPOSE_EXTRA_ARGS="--env-file ${ENV_FILE} --project-name codeingraph2-${INSTANCE_NAME}"
     # shellcheck disable=SC2086
-    (cd "$SCRIPT_DIR" && docker compose $_uninstall_extra down 2>/dev/null || true)
-    # Remove from ~/.mcp.json
-    MCP_JSON="${HOME}/.mcp.json"
-    if [[ -f "$MCP_JSON" ]]; then
-        python3 - "$MCP_JSON" "$MCP_NAME" <<'PY' || true
+    (cd "$SCRIPT_DIR" && docker compose $COMPOSE_EXTRA_ARGS down 2>/dev/null || true)
+
+    # Remove from registry.json
+    if [[ -f "$REGISTRY_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+        python3 - "$REGISTRY_FILE" "$INSTANCE_NAME" <<'PY' || true
+import json, sys
+path, name = sys.argv[1], sys.argv[2]
+try:
+    with open(path) as f: cfg = json.load(f)
+except Exception:
+    sys.exit(0)
+if "projects" in cfg and name in cfg["projects"]:
+    del cfg["projects"][name]
+    with open(path, "w") as f: json.dump(cfg, f, indent=2)
+    print(f"removed '{name}' from registry")
+remaining = len(cfg.get("projects", {}))
+print(f"remaining projects: {remaining}")
+sys.exit(0 if remaining > 0 else 10)
+PY
+        _reg_exit=$?
+        # If no projects remain, stop MCP container and remove global MCP entries
+        if [[ $_reg_exit -eq 10 ]]; then
+            log "Último projeto removido — parando container MCP global..."
+            (cd "$SCRIPT_DIR" && docker compose -f mcp-compose.yml down 2>/dev/null || true)
+            _remove_global_mcp() {
+                local path="$1"
+                [[ -f "$path" ]] || return
+                python3 - "$path" "codeingraph2" <<'PY' || true
 import json, sys
 path, name = sys.argv[1], sys.argv[2]
 try:
@@ -133,24 +157,12 @@ except Exception:
 if "mcpServers" in cfg and name in cfg["mcpServers"]:
     del cfg["mcpServers"][name]
     with open(path, "w") as f: json.dump(cfg, f, indent=2)
-    print(f"removed {name} from {path}")
+    print(f"removed global MCP from {path}")
 PY
-    fi
-    # Remove from ~/.claude.json (Claude Code VSCode extension)
-    CLAUDE_JSON="${HOME}/.claude.json"
-    if [[ -f "$CLAUDE_JSON" ]]; then
-        python3 - "$CLAUDE_JSON" "$MCP_NAME" <<'PY' || true
-import json, sys
-path, name = sys.argv[1], sys.argv[2]
-try:
-    with open(path) as f: cfg = json.load(f)
-except Exception:
-    sys.exit(0)
-if "mcpServers" in cfg and name in cfg["mcpServers"]:
-    del cfg["mcpServers"][name]
-    with open(path, "w") as f: json.dump(cfg, f, indent=4)
-    print(f"removed {name} from {path}")
-PY
+            }
+            _remove_global_mcp "${HOME}/.mcp.json"
+            _remove_global_mcp "${HOME}/.claude.json"
+        fi
     fi
     ok "Desinstalado."
     exit 0
@@ -172,6 +184,7 @@ fi
 ok "Docker OK."
 
 log "Instância: ${INSTANCE_NAME} (container: ${CONTAINER_NAME})"
+log "Dados do projeto: ${PROJECT_DATA_DIR}"
 
 # ---------------------- 2. Prompts (web UI) ----------------------
 if [[ "$WEB_ENABLED_IN" = "1" ]]; then
@@ -230,48 +243,32 @@ else
     WEB_AUTH_VAL=""
 fi
 
-# ---------------------- 3. .env for docker-compose ----------------------
+# ---------------------- 3. Create project directory + .env ----------------------
+mkdir -p "${PROJECT_DATA_DIR}" "${TARGET_CODE}" "${OBSIDIAN_VAULT}"
+
 PROJECT_NAME="$(basename "$TARGET_CODE")"
-
-# Determine if this is a self-install (TARGET_CODE == SCRIPT_DIR) or an
-# external install. External installs get their own isolated env file so that
-# $SCRIPT_DIR/.env — which drives the canonical codeingraph2 instance — is
-# never overwritten by a secondary project installation.
-_target_real="$(realpath "$TARGET_CODE" 2>/dev/null || echo "$TARGET_CODE")"
-_script_real="$(realpath "$SCRIPT_DIR" 2>/dev/null || echo "$SCRIPT_DIR")"
-
-if [[ "$_target_real" == "$_script_real" ]]; then
-    # Self-install: write directly into the project directory as before.
-    ENV_FILE="$SCRIPT_DIR/.env"
-    COMPOSE_EXTRA_ARGS=""
-else
-    # External install: keep the env file completely outside SCRIPT_DIR.
-    mkdir -p /opt/codeingraph2
-    ENV_FILE="/opt/codeingraph2/${INSTANCE_NAME}.env"
-    # Pass a separate project name so docker compose doesn't mix project state
-    # with other instances running from the same SCRIPT_DIR.
-    COMPOSE_EXTRA_ARGS="--env-file $ENV_FILE --project-name codeingraph2-${INSTANCE_NAME}"
-fi
+ENV_FILE="${PROJECT_DATA_DIR}/.env"
 
 cat > "$ENV_FILE" <<EOF
 # Auto-gerado por install_global.sh em $(date -u +%Y-%m-%dT%H:%M:%SZ)
-INSTANCE_NAME=$INSTANCE_NAME
-TARGET_CODE=$TARGET_CODE
-OBSIDIAN_VAULT=$OBSIDIAN_VAULT
-PROJECT_NAME=$PROJECT_NAME
-WEB_ENABLED=$WEB_ENABLED_IN
-VAULT_ENABLED=$VAULT_ENABLED_IN
-WEB_PORT=$WEB_PORT
-WEB_USER=$WEB_USER_IN
-WEB_AUTH=$WEB_AUTH_VAL
+INSTANCE_NAME=${INSTANCE_NAME}
+TARGET_CODE=${TARGET_CODE}
+OBSIDIAN_VAULT=${OBSIDIAN_VAULT}
+PROJECT_DATA_DIR=${PROJECT_DATA_DIR}
+PROJECT_NAME=${PROJECT_NAME}
+WEB_ENABLED=${WEB_ENABLED_IN}
+VAULT_ENABLED=${VAULT_ENABLED_IN}
+WEB_PORT=${WEB_PORT}
+WEB_USER=${WEB_USER_IN}
+WEB_AUTH=${WEB_AUTH_VAL}
 EOF
 chmod 600 "$ENV_FILE"
 ok "Escreveu $ENV_FILE (modo 600)."
 
-mkdir -p "$TARGET_CODE" "$OBSIDIAN_VAULT"
 log "INSTANCE_NAME   = $INSTANCE_NAME"
 log "TARGET_CODE     = $TARGET_CODE"
 log "OBSIDIAN_VAULT  = $OBSIDIAN_VAULT"
+log "PROJECT_DATA    = $PROJECT_DATA_DIR"
 if [[ "$WEB_ENABLED_IN" = "1" ]]; then
     log "Web UI          = http://localhost:$WEB_PORT (user: $WEB_USER_IN)"
 else
@@ -279,6 +276,8 @@ else
 fi
 
 # ---------------------- 4. Build + up ----------------------
+COMPOSE_EXTRA_ARGS="--env-file ${ENV_FILE} --project-name codeingraph2-${INSTANCE_NAME}"
+
 if [[ $DO_BUILD -eq 1 ]]; then
     log "Construindo imagem (pode demorar na primeira vez)..."
     # shellcheck disable=SC2086
@@ -290,10 +289,44 @@ if [[ $DO_START -eq 1 ]]; then
     (cd "$SCRIPT_DIR" && docker compose $COMPOSE_EXTRA_ARGS up -d)
 fi
 
-# ---------------------- 5. Registra MCP nos arquivos de config ----------------------
-# Registra em ~/.mcp.json  (Claude Code CLI / terminal)
-# Registra em ~/.claude.json (Claude Code VSCode extension)
-# Ambos fazem merge — nunca sobrescrevem entradas de outras instâncias.
+# ---------------------- 5. Atualiza registry.json ----------------------
+if ! command -v python3 >/dev/null 2>&1; then
+    warn "python3 não encontrado — registry.json não atualizado."
+else
+    [[ -f "$REGISTRY_FILE" ]] || echo '{"projects":{}}' > "$REGISTRY_FILE"
+    python3 - "$REGISTRY_FILE" "$INSTANCE_NAME" "$TARGET_CODE" "${PROJECT_DATA_DIR}/graph.db" <<'PY'
+import json, sys
+path, name, target, db = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+try:
+    with open(path) as f: cfg = json.load(f)
+except Exception:
+    cfg = {"projects": {}}
+cfg.setdefault("projects", {})
+cfg["projects"][name] = {"target": target, "db": db}
+with open(path, "w") as f: json.dump(cfg, f, indent=2)
+print(f"  registered '{name}' in {path}")
+PY
+    ok "Registry atualizado: ${REGISTRY_FILE}"
+fi
+
+# ---------------------- 6. Sobe container MCP global (codeingraph2_mcp) ----------------------
+# Um único container persistente serve a todos os projetos via `docker exec`.
+# Usa a imagem já construída para evitar build extra.
+
+MCP_CONTAINER="codeingraph2_mcp"
+
+if [[ $DO_START -eq 1 ]]; then
+    if ! docker ps --filter "name=^${MCP_CONTAINER}$" --filter "status=running" --format "{{.Names}}" | grep -q "^${MCP_CONTAINER}$"; then
+        log "Subindo container MCP global '${MCP_CONTAINER}'..."
+        (cd "$SCRIPT_DIR" && docker compose -f mcp-compose.yml up -d)
+        ok "Container MCP global iniciado."
+    else
+        log "Container MCP global '${MCP_CONTAINER}' já está rodando."
+    fi
+fi
+
+# ---------------------- 7. Registra MCP global "codeingraph2" ----------------------
+# Usa `docker exec -i` no container persistente — sem latência de startup.
 
 _register_mcp() {
     local path="$1" name="$2" cmd="$3" args_json="$4" indent="${5:-2}"
@@ -315,17 +348,21 @@ PY
 if ! command -v python3 >/dev/null 2>&1; then
     warn "python3 não encontrado — adicione manualmente em ~/.mcp.json e ~/.claude.json"
 else
+    GLOBAL_MCP_NAME="codeingraph2"
+    GLOBAL_MCP_COMMAND="docker"
+    GLOBAL_MCP_ARGS="[\"exec\",\"-i\",\"${MCP_CONTAINER}\",\"/usr/local/bin/mcp_server\"]"
+
     # ~/.mcp.json  (Claude Code CLI)
     MCP_JSON="${HOME}/.mcp.json"
     [[ -f "$MCP_JSON" ]] || echo '{"mcpServers":{}}' > "$MCP_JSON"
-    _register_mcp "$MCP_JSON" "$MCP_NAME" "$MCP_COMMAND" "$MCP_ARGS" 2
-    ok "MCP '${MCP_NAME}' registrado em ${MCP_JSON}."
+    _register_mcp "$MCP_JSON" "$GLOBAL_MCP_NAME" "$GLOBAL_MCP_COMMAND" "$GLOBAL_MCP_ARGS" 2
+    ok "MCP global '${GLOBAL_MCP_NAME}' registrado em ${MCP_JSON}."
 
-    # ~/.claude.json  (Claude Code VSCode extension — uses mcpServers at top level)
+    # ~/.claude.json  (Claude Code VSCode extension)
     CLAUDE_JSON="${HOME}/.claude.json"
     if [[ -f "$CLAUDE_JSON" ]]; then
-        _register_mcp "$CLAUDE_JSON" "$MCP_NAME" "$MCP_COMMAND" "$MCP_ARGS" 4
-        ok "MCP '${MCP_NAME}' registrado em ${CLAUDE_JSON}."
+        _register_mcp "$CLAUDE_JSON" "$GLOBAL_MCP_NAME" "$GLOBAL_MCP_COMMAND" "$GLOBAL_MCP_ARGS" 4
+        ok "MCP global '${GLOBAL_MCP_NAME}' registrado em ${CLAUDE_JSON}."
     fi
 fi
 
@@ -334,17 +371,20 @@ cat <<EOF
 
 Próximos passos:
   1. Reinicie o Claude Desktop para carregar o MCP.
-  2. Monte seu código em:         $TARGET_CODE
-  3. Inspecione o vault em:       $OBSIDIAN_VAULT
+  2. Código indexado em:           $TARGET_CODE
+  3. Dados do projeto em:          $PROJECT_DATA_DIR
+  4. Vault Obsidian em:            $OBSIDIAN_VAULT
 EOF
 if [[ "$WEB_ENABLED_IN" = "1" ]]; then
 cat <<EOF
-  4. Abra a UI web:               http://localhost:$WEB_PORT
+  5. Abra a UI web:                http://localhost:$WEB_PORT
      (usuário: $WEB_USER_IN)
 EOF
 fi
 cat <<EOF
-  5. Logs:                        docker logs -f ${CONTAINER_NAME}
-  6. Status:                      docker exec ${CONTAINER_NAME} codeingraph2 health
-  7. MCP registrado como:         ${MCP_NAME}
+  6. Logs:                         docker logs -f ${CONTAINER_NAME}
+  7. Status:                       docker exec ${CONTAINER_NAME} codeingraph2 health
+  8. MCP global registrado como:   codeingraph2
+     Projetos disponíveis via:     list_projects (tool MCP)
+     Registry:                     ${REGISTRY_FILE}
 EOF

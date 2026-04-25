@@ -15,6 +15,10 @@ graph.db
 graph.db-*
 .env
 
+# per-project data (never committed)
+projects/
+registry.json
+
 # editor / os
 .DS_Store
 .vscode/

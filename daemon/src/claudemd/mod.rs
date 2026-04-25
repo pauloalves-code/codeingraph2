@@ -30,11 +30,14 @@ pub fn render(pool: &Pool, cfg: &Config) -> Result<()> {
     let existing = fs::read_to_string(&dest).unwrap_or_default();
 
     let merged = if existing.contains(BEGIN) && existing.contains(END) {
-        // Replace only the managed block, preserving user content.
         replace_block(&existing, &rendered)
     } else {
         rendered
     };
+
+    if merged == existing {
+        return Ok(());
+    }
 
     fs::write(&dest, merged)
         .with_context(|| format!("writing {}", dest.display()))?;
